@@ -3,7 +3,7 @@ import { ArrowRight } from "lucide-react"
 
 export default function CTASection() {
   return (
-    <section className="py-20 lg:py-28 bg-secondary-foreground">
+    <section className="py-16 lg:py-24 bg-secondary-foreground">
       <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 text-center">
         <h2 className="text-3xl sm:text-4xl font-bold text-secondary text-balance mb-6">
           Ready to transform your freight operations?

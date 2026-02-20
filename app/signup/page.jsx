@@ -8,13 +8,14 @@ import { Eye, EyeOff, Truck, ArrowRight, Package, Route } from "lucide-react"
 export default function SignupPage() {
   const router = useRouter()
   const [showPassword, setShowPassword] = useState(false)
-  const [role, setRole] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [formData, setFormData] = useState({
     fullName: "",
     email: "",
     phone: "",
     company: "",
+    city: "",
+    country: "",
     password: "",
   })
 
@@ -23,18 +24,14 @@ export default function SignupPage() {
     setIsLoading(true)
     setTimeout(() => {
       setIsLoading(false)
-      if (role === "trucker") {
-        router.push("/dashboard/trucker")
-      } else {
-        router.push("/dashboard/shipper")
-      }
+      router.push("/dashboard/trucker")
     }, 1200)
   }
 
   return (
     <div className="flex min-h-screen">
       {/* Left Panel - Branding */}
-      <div className="hidden lg:flex lg:w-5/12 flex-col justify-between bg-secondary p-12 relative overflow-hidden">
+      <div className="hidden lg:flex lg:fixed lg:inset-y-0 lg:left-0 lg:w-5/12 flex-col justify-between bg-secondary p-12 relative overflow-hidden">
         <div className="absolute inset-0 opacity-10">
           <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
             <defs>
@@ -82,7 +79,7 @@ export default function SignupPage() {
       </div>
 
       {/* Right Panel - Signup Form */}
-      <div className="flex flex-1 flex-col justify-center px-6 py-12 lg:px-16 xl:px-20 bg-background">
+      <div className="flex flex-1 flex-col justify-center px-6 py-12 lg:ml-[41.6667%] lg:px-16 xl:px-20 bg-background">
         <div className="mx-auto w-full max-w-lg">
           {/* Mobile Logo */}
           <div className="mb-8 lg:hidden">
@@ -95,42 +92,9 @@ export default function SignupPage() {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Role Selection */}
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-2">I am a</label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setRole("shipper")}
-                  className={`flex flex-col items-center gap-2 rounded-lg border-2 px-4 py-4 text-sm font-medium transition-all ${
-                    role === "shipper"
-                      ? "border-primary bg-primary/5 text-foreground"
-                      : "border-input bg-card text-muted-foreground hover:border-primary/40"
-                  }`}
-                >
-                  <Package className="w-6 h-6" />
-                  <span>Shipper</span>
-                  <span className="text-xs font-normal text-muted-foreground">I need to send goods</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setRole("trucker")}
-                  className={`flex flex-col items-center gap-2 rounded-lg border-2 px-4 py-4 text-sm font-medium transition-all ${
-                    role === "trucker"
-                      ? "border-primary bg-primary/5 text-foreground"
-                      : "border-input bg-card text-muted-foreground hover:border-primary/40"
-                  }`}
-                >
-                  <Truck className="w-6 h-6" />
-                  <span>Trucker</span>
-                  <span className="text-xs font-normal text-muted-foreground">I have truck capacity</span>
-                </button>
-              </div>
-            </div>
-
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label htmlFor="fullName" className="block text-sm font-medium text-foreground mb-1.5">Full name</label>
+                <label htmlFor="fullName" className="block text-sm font-medium text-foreground mb-1.5">First name</label>
                 <input
                   id="fullName"
                   type="text"
@@ -138,21 +102,46 @@ export default function SignupPage() {
                   value={formData.fullName}
                   onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
                   className="w-full rounded-lg border border-input bg-card px-4 py-3 text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
-                  placeholder="Guest User"
+                  placeholder="Meftah"
                 />
               </div>
               <div>
-                <label htmlFor="company" className="block text-sm font-medium text-foreground mb-1.5">Company name</label>
+                <label htmlFor="company" className="block text-sm font-medium text-foreground mb-1.5">Last name</label>
                 <input
                   id="company"
                   type="text"
                   value={formData.company}
                   onChange={(e) => setFormData({ ...formData, company: e.target.value })}
                   className="w-full rounded-lg border border-input bg-card px-4 py-3 text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
-                  placeholder="Optional"
+                  placeholder="Reda"
                 />
               </div>
             </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="city" className="block text-sm font-medium text-foreground mb-1.5">City</label>
+                  <input
+                    id="city"
+                    type="text"
+                    value={formData.city}
+                    onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                    className="w-full rounded-lg border border-input bg-card px-4 py-3 text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
+                    placeholder="Oran"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="country" className="block text-sm font-medium text-foreground mb-1.5">Country</label>
+                  <input
+                    id="country"
+                    type="text"
+                    value={formData.country}
+                    onChange={(e) => setFormData({ ...formData, country: e.target.value })}
+                    className="w-full rounded-lg border border-input bg-card px-4 py-3 text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
+                    placeholder="Algeria"
+                  />
+                </div>
+              </div>
 
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-foreground mb-1.5">Email address</label>
@@ -163,7 +152,7 @@ export default function SignupPage() {
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 className="w-full rounded-lg border border-input bg-card px-4 py-3 text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
-                placeholder="you@company.com"
+                placeholder="username@gmail.com"
               />
             </div>
 
@@ -220,7 +209,7 @@ export default function SignupPage() {
 
             <button
               type="submit"
-              disabled={isLoading || !role}
+              disabled={isLoading}
               className="w-full flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:opacity-50 transition-all"
             >
               {isLoading ? (

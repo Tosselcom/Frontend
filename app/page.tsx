@@ -187,7 +187,7 @@ export default function HomePage() {
       </section>
 
       {/* For Shippers & Truckers */}
-      <section className="py-20 lg:py-28 bg-background">
+      <section className="py-20 lg:py-8 bg-background">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="grid lg:grid-cols-2 gap-12">
             {/* For Shippers */}
@@ -215,12 +215,6 @@ export default function HomePage() {
                   </li>
                 ))}
               </ul>
-              <Link
-                href="/signup"
-                className="inline-flex items-center gap-2 text-sm font-semibold text-accent hover:text-accent/80 transition-colors"
-              >
-                Start as a Shipper <ArrowRight className="w-4 h-4" />
-              </Link>
             </div>
 
             {/* For Truckers */}
@@ -248,12 +242,6 @@ export default function HomePage() {
                   </li>
                 ))}
               </ul>
-              <Link
-                href="/signup"
-                className="inline-flex items-center gap-2 text-sm font-semibold text-accent hover:text-accent/80 transition-colors"
-              >
-                Start as a Trucker <ArrowRight className="w-4 h-4" />
-              </Link>
             </div>
           </div>
         </div>
