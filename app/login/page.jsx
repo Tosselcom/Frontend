@@ -4,20 +4,40 @@ import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Eye, EyeOff, Truck, ArrowRight } from "lucide-react"
-
+import axios from "axios"
 export default function LoginPage() {
   const router = useRouter()
   const [showPassword, setShowPassword] = useState(false)
   const [formData, setFormData] = useState({ email: "", password: "" })
   const [isLoading, setIsLoading] = useState(false)
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     setIsLoading(true)
-    setTimeout(() => {
+    try {
+      const response = await axios.post(
+        "http://localhost:5000/user/auth/login",
+        formData
+      )
+
+      if (response.status === 200) {
+        // backend sends { token, user }
+        const { token } = response.data
+        alert(`Login successful. Token: ${token}`)
+        // you could store token in localStorage, etc.
+        router.push("/dashboard/trucker")
+      } else {
+        console.error("Login failed:", response.data)
+        alert("Login failed: " + (response.data.message || "Unknown error"))
+      }
+    } catch (err) {
+      console.error("Login error", err)
+      alert(
+        err.response?.data?.message || "Login failed; check console"
+      )
+    } finally {
       setIsLoading(false)
-      router.push("/dashboard/shipper")
-    }, 1200)
+    }
   }
 
   return (

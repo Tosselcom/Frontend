@@ -4,28 +4,47 @@ import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Eye, EyeOff, Truck, ArrowRight, Package, Route } from "lucide-react"
+import axios from "axios"
 
 export default function SignupPage() {
   const router = useRouter()
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [formData, setFormData] = useState({
-    fullName: "",
+    firstName: "",
+    lastName: "",
     email: "",
-    phone: "",
-    company: "",
+    phoneNumber: "",
     city: "",
     country: "",
+    age: "",
     password: "",
   })
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     setIsLoading(true)
-    setTimeout(() => {
+    try {
+      const response = await axios.post(
+        "http://localhost:5000/user/auth/register",
+        formData
+      )
+
+      if (response.status === 200) {
+        alert("Account created successfully")
+        router.push("/login")
+      } else {
+        console.error("Registration failed:", response.data)
+        alert("Registration failed: " + (response.data.message || "Unknown error"))
+      }
+    } catch (err) {
+      console.error("Signup error", err)
+      alert(
+        err.response?.data?.message || "Registration failed; check console"
+      )
+    } finally {
       setIsLoading(false)
-      router.push("/dashboard/trucker")
-    }, 1200)
+    }
   }
 
   return (
@@ -94,24 +113,24 @@ export default function SignupPage() {
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label htmlFor="fullName" className="block text-sm font-medium text-foreground mb-1.5">First name</label>
+                <label htmlFor="firstName" className="block text-sm font-medium text-foreground mb-1.5">First name</label>
                 <input
-                  id="fullName"
+                  id="firstName"
                   type="text"
                   required
-                  value={formData.fullName}
-                  onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+                  value={formData.firstName}
+                  onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
                   className="w-full rounded-lg border border-input bg-card px-4 py-3 text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
                   placeholder="Meftah"
                 />
               </div>
               <div>
-                <label htmlFor="company" className="block text-sm font-medium text-foreground mb-1.5">Last name</label>
+                <label htmlFor="lastName" className="block text-sm font-medium text-foreground mb-1.5">Last name</label>
                 <input
-                  id="company"
+                  id="lastName"
                   type="text"
-                  value={formData.company}
-                  onChange={(e) => setFormData({ ...formData, company: e.target.value })}
+                  value={formData.lastName}
+                  onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
                   className="w-full rounded-lg border border-input bg-card px-4 py-3 text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
                   placeholder="Reda"
                 />
@@ -143,27 +162,41 @@ export default function SignupPage() {
                 </div>
               </div>
 
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-foreground mb-1.5">Email address</label>
-              <input
-                id="email"
-                type="email"
-                required
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                className="w-full rounded-lg border border-input bg-card px-4 py-3 text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
-                placeholder="username@gmail.com"
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="email" className="block text-sm font-medium text-foreground mb-1.5">Email address</label>
+                <input
+                  id="email"
+                  type="email"
+                  required
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  className="w-full rounded-lg border border-input bg-card px-4 py-3 text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
+                  placeholder="username@gmail.com"
+                />
+              </div>
+              <div>
+                <label htmlFor="age" className="block text-sm font-medium text-foreground mb-1.5">Age</label>
+                <input
+                  id="age"
+                  type="number"
+                  min="0"
+                  value={formData.age}
+                  onChange={(e) => setFormData({ ...formData, age: e.target.value })}
+                  className="w-full rounded-lg border border-input bg-card px-4 py-3 text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
+                  placeholder="35"
+                />
+              </div>
             </div>
 
             <div>
-              <label htmlFor="phone" className="block text-sm font-medium text-foreground mb-1.5">Phone number</label>
+              <label htmlFor="phoneNumber" className="block text-sm font-medium text-foreground mb-1.5">Phone number</label>
               <input
-                id="phone"
+                id="phoneNumber"
                 type="tel"
                 required
-                value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                value={formData.phoneNumber}
+                onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
                 className="w-full rounded-lg border border-input bg-card px-4 py-3 text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
                 placeholder="+213 555-55-55-55"
               />
@@ -211,7 +244,7 @@ export default function SignupPage() {
               type="submit"
               disabled={isLoading}
               className="w-full flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:opacity-50 transition-all"
-            >
+            onClick={handleSubmit}>
               {isLoading ? (
                 <div className="w-5 h-5 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
               ) : (
