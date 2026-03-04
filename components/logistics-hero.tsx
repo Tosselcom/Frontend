@@ -19,6 +19,15 @@ const particles = [
   { left: "92%", top: "20%", size: "5px", duration: "7.9s", delay: "1.2s" },
 ]
 
+const headlineWords = [
+  { label: "Move" },
+  { label: "freight" },
+  { label: "smarter", accent: true },
+  { label: "," },
+  { label: "not" },
+  { label: "emptier." },
+]
+
 export default function LogisticsHero() {
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false)
 
@@ -65,11 +74,20 @@ export default function LogisticsHero() {
             </div>
 
             <h1 className={styles.headline}>
-              Move freight <span className={styles.primaryAccent}>smarter</span>, not emptier.
+              {headlineWords.map((word, index) => (
+                <span
+                  key={`${word.label}-${index}`}
+                  className={`${styles.word} ${word.accent ? styles.primaryAccent : ""}`.trim()}
+                  style={{ animationDelay: `${index * 120}ms` }}
+                >
+                  {word.label}
+                  {index < headlineWords.length - 1 ? <span className={styles.wordSpace} /> : null}
+                </span>
+              ))}
             </h1>
 
             <p className={styles.subtitle}>
-              100%TOSSELCOM connects shippers with truckers to reduce empty return trips, lower costs, and maximize every mile on the road.
+              FI TRI9I connects shippers with truckers to reduce empty return trips, lower costs, and maximize every mile on the road.
             </p>
 
             <div className={styles.ctaRow}>
@@ -80,53 +98,6 @@ export default function LogisticsHero() {
               <Link href="/#guide" className={styles.secondaryCta}>
                 See Guide
               </Link>
-            </div>
-          </div>
-
-          <div className={styles.mapPanel}>
-            <div className={styles.mapOverlay} />
-
-            <svg className={styles.routeSvg} viewBox="0 0 700 420" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <path
-                id="routePath"
-                className={`${styles.routePath} ${!prefersReducedMotion ? styles.animateRoute : ""}`}
-                d="M90,325 C145,260 235,260 288,205 C342,148 395,148 455,182 C535,226 590,198 635,115"
-              />
-
-              <circle className={styles.cityDot} cx="90" cy="325" r="7" style={{ animationDelay: "0.7s" }} />
-              <circle className={styles.cityDot} cx="288" cy="205" r="7" style={{ animationDelay: "1.8s" }} />
-              <circle className={styles.cityDot} cx="455" cy="182" r="7" style={{ animationDelay: "2.7s" }} />
-              <circle className={styles.cityDot} cx="635" cy="115" r="7" style={{ animationDelay: "3.6s" }} />
-
-              <g className={styles.truck}>
-                <rect x="-16" y="-9" width="24" height="14" rx="2" fill="#ffffff" />
-                <rect x="7" y="-6" width="10" height="11" rx="2" fill="#d8eaff" />
-                <circle cx="-8" cy="7" r="3" fill="#1a2a45" />
-                <circle cx="8" cy="7" r="3" fill="#1a2a45" />
-                {!prefersReducedMotion && (
-                  <animateMotion dur="7s" repeatCount="indefinite" rotate="auto" keyTimes="0;0.76;1" keyPoints="0;1;1" calcMode="linear">
-                    <mpath href="#routePath" />
-                  </animateMotion>
-                )}
-              </g>
-            </svg>
-
-            <div className={`${styles.shipmentCard} ${styles.cardOne}`}>
-              <p className={styles.cardTitle}>Shipment</p>
-              <p className={styles.cardRoute}>Alger → Oran</p>
-              <p className={styles.cardMeta}>12.5T • Mar 04</p>
-            </div>
-
-            <div className={`${styles.shipmentCard} ${styles.cardTwo}`}>
-              <p className={styles.cardTitle}>Shipment</p>
-              <p className={styles.cardRoute}>Setif → Blida</p>
-              <p className={styles.cardMeta}>8.1T • Mar 05</p>
-            </div>
-
-            <div className={`${styles.shipmentCard} ${styles.cardThree}`}>
-              <p className={styles.cardTitle}>Shipment</p>
-              <p className={styles.cardRoute}>Tlemcen → Alger</p>
-              <p className={styles.cardMeta}>16.3T • Mar 06</p>
             </div>
           </div>
         </div>

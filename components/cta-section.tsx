@@ -3,13 +3,13 @@ import { ArrowRight } from "lucide-react"
 
 export default function CTASection() {
   return (
-    <section className="py-16 lg:py-24 bg-secondary-foreground">
+    <section className="py-16 lg:py-24 bg-muted">
       <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 text-center">
         <h2 className="text-3xl sm:text-4xl font-bold text-secondary text-balance mb-6">
           Ready to transform your freight operations?
         </h2>
         <p className="text-lg text-secondary/70 max-w-2xl mx-auto mb-10 leading-relaxed">
-          Join thousands of shippers and truckers already using 100%TOSSELCOM to move freight more efficiently.
+          Join thousands of shippers and truckers already using FI TRI9I to move freight more efficiently.
         </p>
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
           <Link

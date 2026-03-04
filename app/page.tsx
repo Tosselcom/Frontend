@@ -66,7 +66,7 @@ export default function HomePage() {
       </section>
 
       {/* How it Works */}
-      <section id="guide" className="py-20 lg:py-28 bg-muted">
+      <section id="guide" className="scroll-mt-24 pt-8 pb-20 lg:pt-2 lg:pb-28 bg-muted">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <ScrollReveal className="text-center max-w-2xl mx-auto mb-16">
             <p className="text-sm font-semibold text-accent uppercase tracking-wider mb-3">Guide</p>
@@ -97,7 +97,7 @@ export default function HomePage() {
       </section>
 
       {/* For Shippers & Truckers */}
-      <section className="py-20 lg:py-8 bg-background">
+      <section className="py-20 lg:py-8 bg-muted">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="grid lg:grid-cols-2 gap-12">
             {/* For Shippers */}

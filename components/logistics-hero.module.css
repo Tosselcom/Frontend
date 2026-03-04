@@ -1,15 +1,22 @@
 .hero {
   position: relative;
+  min-height: 100svh;
   overflow: hidden;
-  background: radial-gradient(circle at 80% 10%, hsl(var(--primary) / 0.18) 0%, hsl(var(--secondary) / 0) 38%), hsl(var(--secondary));
+  background-image: linear-gradient(120deg, hsl(var(--secondary) / 0.86), hsl(var(--secondary) / 0.58)), url("/pexels-tima-miroshnichenko-6169056.jpg");
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
 }
 
 .heroInner {
   position: relative;
   z-index: 2;
+  min-height: 100svh;
+  display: flex;
+  align-items: center;
   margin: 0 auto;
   max-width: 80rem;
-  padding: 8.5rem 1rem 5rem;
+  padding: calc(4rem + 2.25rem) 1rem 2.25rem;
 }
 
 .layout {
@@ -19,7 +26,7 @@
 }
 
 .copy {
-  max-width: 42rem;
+  max-width: 48rem;
 }
 
 .eyebrow {
@@ -348,22 +355,19 @@
 
 @media (min-width: 1024px) {
   .heroInner {
-    padding-top: 9.4rem;
-    padding-bottom: 5.5rem;
+    padding-top: calc(4rem + 3rem);
+    padding-bottom: 3rem;
   }
 
   .layout {
-    grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
 @media (max-width: 1023px) {
   .heroInner {
-    padding-top: 7.6rem;
-  }
-
-  .mapPanel {
-    min-height: 20rem;
+    padding-top: calc(4rem + 2rem);
+    padding-bottom: 2rem;
   }
 }
 
@@ -374,10 +378,6 @@
 
   .layout {
     gap: 1.6rem;
-  }
-
-  .mapPanel {
-    min-height: 18rem;
   }
 
   .shipmentCard {

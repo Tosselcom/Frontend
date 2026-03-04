@@ -8,7 +8,7 @@ const outfit = Outfit({
 })
 
 export const metadata = {
-  title: '100%TOSSELCOM',
+  title: 'FI TRI9I',
   icon: '/body-logo.ico',
   description: 'A multi-sided digital delivery platform connecting shippers, truckers, and couriers for efficient freight transport.',
 }

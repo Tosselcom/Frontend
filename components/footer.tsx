@@ -48,7 +48,7 @@ export default function Footer() {
               </li>
               <li>
                 <Link
-                  href="#about-us"
+                  href="/#about-us"
                   className="text-sm text-secondary-foreground/50 hover:text-secondary-foreground transition-colors"
                 >
                   About us
@@ -56,7 +56,7 @@ export default function Footer() {
               </li>
               <li>
                 <Link
-                  href="#guide"
+                  href="/#guide"
                   className="text-sm text-secondary-foreground/50 hover:text-secondary-foreground transition-colors"
                 >
                   Guide
