@@ -1,0 +1,418 @@
+.hero {
+  position: relative;
+  overflow: hidden;
+  background: radial-gradient(circle at 80% 10%, hsl(var(--primary) / 0.18) 0%, hsl(var(--secondary) / 0) 38%), hsl(var(--secondary));
+}
+
+.heroInner {
+  position: relative;
+  z-index: 2;
+  margin: 0 auto;
+  max-width: 80rem;
+  padding: 8.5rem 1rem 5rem;
+}
+
+.layout {
+  display: grid;
+  gap: 2.5rem;
+  align-items: center;
+}
+
+.copy {
+  max-width: 42rem;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+  color: hsl(var(--secondary-foreground));
+  border-radius: 9999px;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  backdrop-filter: blur(6px);
+}
+
+.headline {
+  margin-top: 1rem;
+  font-size: clamp(2rem, 5vw, 4rem);
+  line-height: 1.05;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: hsl(var(--secondary-foreground));
+}
+
+.primaryAccent {
+  color: hsl(var(--primary));
+}
+
+.word {
+  display: inline-block;
+  opacity: 0;
+  transform: translateY(16px);
+  animation: wordIn 700ms cubic-bezier(0.2, 0.75, 0.25, 1) forwards;
+}
+
+.wordSpace {
+  margin-right: 0.45ch;
+}
+
+.subtitle {
+  margin-top: 1rem;
+  max-width: 40rem;
+  color: hsl(var(--secondary-foreground) / 0.82);
+  font-size: clamp(1rem, 2vw, 1.2rem);
+  line-height: 1.7;
+  opacity: 0;
+  transform: translateY(14px);
+  animation: revealUp 700ms ease-out 420ms forwards;
+}
+
+.ctaRow {
+  margin-top: 1.8rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  opacity: 0;
+  transform: translateY(14px);
+  animation: revealUp 700ms ease-out 600ms forwards;
+}
+
+.primaryCta,
+.secondaryCta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.7rem;
+  padding: 0.85rem 1.25rem;
+  font-size: 0.92rem;
+  font-weight: 700;
+  transition: transform 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+}
+
+.primaryCta {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  box-shadow: 0 8px 22px hsl(var(--primary) / 0.32);
+}
+
+.primaryCta:hover {
+  transform: translateY(-1px);
+  background: hsl(var(--primary) / 0.9);
+}
+
+.secondaryCta {
+  border: 1px solid hsl(var(--secondary-foreground) / 0.32);
+  background: hsl(var(--secondary-foreground) / 0.07);
+  color: hsl(var(--secondary-foreground));
+}
+
+.secondaryCta:hover {
+  transform: translateY(-1px);
+  background: hsl(var(--secondary-foreground) / 0.13);
+}
+
+.statGrid {
+  margin-top: 1.8rem;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+  opacity: 0;
+  transform: translateY(14px);
+  animation: revealUp 700ms ease-out 760ms forwards;
+}
+
+.statCard {
+  border: 1px solid hsl(var(--secondary-foreground) / 0.14);
+  background: hsl(var(--secondary-foreground) / 0.05);
+  border-radius: 0.8rem;
+  padding: 0.8rem 0.9rem;
+}
+
+.statValue {
+  color: hsl(var(--secondary-foreground));
+  font-size: clamp(1.1rem, 2.6vw, 1.55rem);
+  font-weight: 800;
+}
+
+.statLabel {
+  margin-top: 0.15rem;
+  color: hsl(var(--secondary-foreground) / 0.7);
+  font-size: 0.78rem;
+}
+
+.mapPanel {
+  position: relative;
+  min-height: 24rem;
+  border: 1px solid hsl(var(--secondary-foreground) / 0.12);
+  border-radius: 1rem;
+  background: linear-gradient(180deg, hsl(var(--secondary-foreground) / 0.08), hsl(var(--secondary-foreground) / 0.03));
+  backdrop-filter: blur(5px);
+  overflow: hidden;
+}
+
+.mapOverlay {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 20% 20%, hsl(var(--primary) / 0.25), transparent 48%);
+}
+
+.routeSvg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.routePath {
+  stroke: hsl(var(--primary));
+  stroke-width: 3;
+  stroke-dasharray: 10 8;
+  stroke-linecap: round;
+  fill: none;
+  filter: drop-shadow(0 0 6px hsl(var(--primary) / 0.4));
+}
+
+.animateRoute {
+  stroke-dasharray: 1400;
+  stroke-dashoffset: 1400;
+  animation: routeDraw 5.5s cubic-bezier(0.22, 0.74, 0.25, 1) infinite;
+}
+
+.cityDot {
+  fill: hsl(var(--secondary-foreground));
+  stroke: hsl(var(--primary));
+  stroke-width: 2;
+  opacity: 0.88;
+  transform-origin: center;
+  animation: dotPulse 1.6s ease-in-out infinite;
+}
+
+.truck {
+  transform-origin: center;
+  animation: truckIdle 2.8s ease-in-out infinite;
+}
+
+.shipmentCard {
+  position: absolute;
+  min-width: 11.5rem;
+  border-radius: 0.75rem;
+  border: 1px solid hsl(var(--secondary-foreground) / 0.22);
+  background: hsl(var(--secondary) / 0.9);
+  color: hsl(var(--secondary-foreground));
+  box-shadow: 0 18px 35px rgba(0, 0, 0, 0.25);
+  padding: 0.7rem 0.8rem;
+  opacity: 0;
+  transform: translateY(18px);
+  animation: cardIn 650ms cubic-bezier(0.24, 0.74, 0.25, 1) forwards;
+}
+
+.cardTitle {
+  font-size: 0.74rem;
+  color: hsl(var(--secondary-foreground) / 0.7);
+}
+
+.cardRoute {
+  margin-top: 0.25rem;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.cardMeta {
+  margin-top: 0.2rem;
+  font-size: 0.72rem;
+  color: hsl(var(--secondary-foreground) / 0.66);
+}
+
+.cardOne {
+  left: 1rem;
+  top: 1.1rem;
+  animation-delay: 0.4s;
+}
+
+.cardTwo {
+  right: 1rem;
+  top: 4.8rem;
+  animation-delay: 0.6s;
+}
+
+.cardThree {
+  left: 5rem;
+  bottom: 1.1rem;
+  animation-delay: 0.8s;
+}
+
+.particles {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+}
+
+.particle {
+  position: absolute;
+  width: var(--size);
+  height: var(--size);
+  left: var(--left);
+  top: var(--top);
+  border-radius: 9999px;
+  background: hsl(var(--secondary-foreground) / 0.15);
+  animation: drift var(--duration) ease-in-out var(--delay) infinite;
+}
+
+.reduceMotion *,
+.reduceMotion *::before,
+.reduceMotion *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
+.reduceMotion .word,
+.reduceMotion .subtitle,
+.reduceMotion .ctaRow,
+.reduceMotion .statGrid,
+.reduceMotion .shipmentCard {
+  opacity: 1;
+  transform: none;
+}
+
+@keyframes routeDraw {
+  0% {
+    stroke-dashoffset: 1400;
+  }
+  78% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes dotPulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.35);
+    opacity: 1;
+  }
+}
+
+@keyframes truckIdle {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes cardIn {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes wordIn {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes revealUp {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0.3;
+  }
+  50% {
+    transform: translate3d(12px, -18px, 0);
+    opacity: 0.85;
+  }
+}
+
+@media (min-width: 1024px) {
+  .heroInner {
+    padding-top: 9.4rem;
+    padding-bottom: 5.5rem;
+  }
+
+  .layout {
+    grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+  }
+}
+
+@media (max-width: 1023px) {
+  .heroInner {
+    padding-top: 7.6rem;
+  }
+
+  .mapPanel {
+    min-height: 20rem;
+  }
+}
+
+@media (max-width: 767px) {
+  .statGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .layout {
+    gap: 1.6rem;
+  }
+
+  .mapPanel {
+    min-height: 18rem;
+  }
+
+  .shipmentCard {
+    position: relative;
+    left: auto;
+    right: auto;
+    top: auto;
+    bottom: auto;
+    margin: 0.5rem 0.75rem;
+    opacity: 1;
+    transform: none;
+    animation: none;
+  }
+
+  .cardThree {
+    margin-bottom: 0.75rem;
+  }
+
+  .routeSvg {
+    opacity: 0.9;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero * {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .word,
+  .subtitle,
+  .ctaRow,
+  .statGrid,
+  .shipmentCard {
+    opacity: 1;
+    transform: none;
+  }
+}
