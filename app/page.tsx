@@ -52,13 +52,18 @@ export default function HomePage() {
               <ScrollReveal
                 key={i}
                 delay={i * 100}
-                className="group rounded-xl border border-border bg-card p-6 hover:border-primary/30 hover:shadow-lg transition-all"
+                className=""
               >
-                <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-primary/10 text-accent mb-4 group-hover:bg-primary group-hover:text-primary-foreground transition-all">
-                  <feature.icon className="w-6 h-6" />
+                <div className="group relative isolate overflow-hidden rounded-xl border border-border/80 bg-card/90 p-6 shadow-sm transition-all duration-300 hover:-translate-y-1.5 hover:border-primary/40 hover:shadow-xl hover:shadow-primary/10">
+                  <div className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-primary/10 blur-2xl transition-all duration-300 group-hover:scale-150 group-hover:bg-primary/20" />
+                  <div className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-primary/10 to-transparent transition-transform duration-500 group-hover:translate-x-full" />
+
+                  <div className="relative mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-accent ring-1 ring-primary/20 transition-all duration-300 group-hover:scale-110 group-hover:-rotate-3 group-hover:bg-primary group-hover:text-primary-foreground">
+                    <feature.icon className="w-6 h-6" />
+                  </div>
+                  <h3 className="mb-2 text-lg font-semibold text-card-foreground">{feature.title}</h3>
+                  <p className="text-sm leading-relaxed text-muted-foreground">{feature.desc}</p>
                 </div>
-                <h3 className="text-lg font-semibold text-card-foreground mb-2">{feature.title}</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">{feature.desc}</p>
               </ScrollReveal>
             ))}
           </div>
@@ -101,9 +106,9 @@ export default function HomePage() {
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="grid lg:grid-cols-2 gap-12">
             {/* For Shippers */}
-            <ScrollReveal className="rounded-2xl border border-border bg-card p-8 lg:p-10">
+            <ScrollReveal className="group rounded-2xl border border-border bg-card p-8 lg:p-10 transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl hover:shadow-primary/10 hover:border-primary/30">
               <div className="flex items-center gap-3 mb-6">
-                <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-primary text-primary-foreground">
+                <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-primary text-primary-foreground transition-transform duration-300 group-hover:scale-110 group-hover:-rotate-3">
                   <Package className="w-6 h-6" />
                 </div>
                 <h3 className="text-2xl font-bold text-card-foreground">For Shippers</h3>
@@ -128,9 +133,9 @@ export default function HomePage() {
             </ScrollReveal>
 
             {/* For Truckers */}
-            <ScrollReveal delay={100} className="rounded-2xl border border-border bg-card p-8 lg:p-10">
+            <ScrollReveal delay={100} className="group rounded-2xl border border-border bg-card p-8 lg:p-10 transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl hover:shadow-primary/10 hover:border-primary/30">
               <div className="flex items-center gap-3 mb-6">
-                <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-primary text-primary-foreground">
+                <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-primary text-primary-foreground transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3">
                   <Truck className="w-6 h-6" />
                 </div>
                 <h3 className="text-2xl font-bold text-card-foreground">For Truckers</h3>

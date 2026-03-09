@@ -87,10 +87,20 @@ const config: Config = {
             height: '0',
           },
         },
+        rippling: {
+          '0%': {
+            opacity: '1',
+          },
+          '100%': {
+            transform: 'scale(2)',
+            opacity: '0',
+          },
+        },
       },
       animation: {
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
+        rippling: 'rippling 1s ease-out',
       },
     },
   },
