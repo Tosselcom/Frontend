@@ -30,6 +30,10 @@ export default function Navbar() {
             >
               Sign in
             </Link>
+            <span
+              className="h-5 w-px bg-secondary/20"
+              aria-hidden="true"
+            />
             <Link
               href="/signup"
               className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-all"
@@ -56,8 +60,9 @@ export default function Navbar() {
               <Link href="/#about-us" className="text-sm text-secondary/70 hover:text-secondary px-2 py-1.5 transition-colors">About us</Link>
               <Link href="/#guide" className="text-sm text-secondary/70 hover:text-secondary px-2 py-1.5 transition-colors">Guide</Link>
               <Link href="/#contact" className="text-sm text-secondary/70 hover:text-secondary px-2 py-1.5 transition-colors">Contact</Link>
-              <div className="flex gap-3 pt-2">
+              <div className="flex items-center gap-3 pt-2">
                 <Link href="/login" className="flex-1 text-center rounded-lg px-4 py-2.5 text-sm font-medium text-secondary border border-secondary/20 hover:bg-secondary/10 transition-all">Sign in</Link>
+                <span className="h-6 w-px bg-secondary/20" aria-hidden="true" />
                 <Link href="/signup" className="flex-1 text-center rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-all">Get Started</Link>
               </div>
             </div>

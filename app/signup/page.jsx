@@ -3,8 +3,9 @@
 import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Eye, EyeOff, Truck, ArrowRight, Package, Route } from "lucide-react"
+import { Eye, EyeOff, ArrowRight } from "lucide-react"
 import axios from "axios"
+import AuthLeftPanel from "@/components/auth-left-panel"
 
 export default function SignupPage() {
   const router = useRouter()
@@ -49,56 +50,10 @@ export default function SignupPage() {
 
   return (
     <div className="flex min-h-screen">
-      {/* Left Panel - Branding */}
-      <div className="hidden lg:flex lg:fixed lg:inset-y-0 lg:left-0 lg:w-5/12 flex-col justify-between bg-secondary p-12 relative overflow-hidden">
-        <div className="absolute inset-0 opacity-10">
-          <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-              <pattern id="dots" width="30" height="30" patternUnits="userSpaceOnUse">
-                <circle cx="2" cy="2" r="1.5" fill="currentColor" className="text-primary" />
-              </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#dots)" />
-          </svg>
-        </div>
-        <div className="relative z-10">
-          <img src="/logo-dark.svg" alt="Tosselcom" className="w-40 mb-4" />
-        </div>
-        <div className="relative z-10 space-y-6">
-          <h1 className="text-4xl xl:text-5xl font-bold text-secondary-foreground leading-tight text-balance -mt-28">
-            Join the freight<br />revolution today.
-          </h1>
-          <p className="text-lg text-secondary-foreground/70 max-w-md leading-relaxed">
-            Whether you ship goods or drive trucks, our platform matches you with the right opportunities to grow your business.
-          </p>
-          <div className="space-y-4 pt-4">
-            <div className="flex items-start gap-3">
-              <div className="flex items-center justify-center w-8 h-8 rounded-md bg-primary/20 mt-0.5">
-                <Package className="w-4 h-4 text-primary-foreground" />
-              </div>
-              <div>
-                <p className="font-semibold text-secondary-foreground">For Shippers</p>
-                <p className="text-sm text-secondary-foreground/60">Post shipments, find reliable truckers, track deliveries in real-time.</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="flex items-center justify-center w-8 h-8 rounded-md bg-primary/20 mt-0.5">
-                <Route className="w-4 h-4 text-primary-foreground" />
-              </div>
-              <div>
-                <p className="font-semibold text-secondary-foreground">For Truckers</p>
-                <p className="text-sm text-secondary-foreground/60">Post your routes, fill empty miles, manage multiple loads efficiently.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="relative z-10">
-          <p className="text-xs text-secondary-foreground/40">Copyright 2026 &copy; Tosselcom All Right Reserved.</p>
-        </div>
-      </div>
+      <AuthLeftPanel />
 
       {/* Right Panel - Signup Form */}
-      <div className="flex flex-1 flex-col justify-center px-6 py-12 lg:ml-[41.6667%] lg:px-16 xl:px-20 bg-background">
+      <div className="flex flex-1 flex-col justify-center px-6 py-12 lg:ml-[41.666667vw] lg:px-16 xl:px-20 bg-background">
         <div className="mx-auto w-full max-w-lg">
           {/* Mobile Logo */}
           <div className="mb-8 lg:hidden">
@@ -107,7 +62,7 @@ export default function SignupPage() {
 
           <div className="mb-8">
             <h2 className="text-3xl font-bold text-foreground tracking-tight">Create your account</h2>
-            <p className="mt-2 text-muted-foreground">Get started with 100%TOSSELCOM in minutes</p>
+            <p className="mt-2 text-muted-foreground">Get started with FI TRI9I in minutes</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">

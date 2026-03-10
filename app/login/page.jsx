@@ -3,8 +3,9 @@
 import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Eye, EyeOff, Truck, ArrowRight } from "lucide-react"
+import { Eye, EyeOff, ArrowRight } from "lucide-react"
 import axios from "axios"
+import AuthLeftPanel from "@/components/auth-left-panel"
 export default function LoginPage() {
   const router = useRouter()
   const [showPassword, setShowPassword] = useState(false)
@@ -42,51 +43,10 @@ export default function LoginPage() {
 
   return (
     <div className="flex min-h-screen">
-      {/* Left Panel - Branding */}
-      <div className="hidden lg:flex lg:w-1/2 flex-col justify-between bg-secondary p-12 relative overflow-hidden">
-        <div className="absolute inset-0 opacity-10">
-          <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-              <pattern id="grid" width="60" height="60" patternUnits="userSpaceOnUse">
-                <path d="M 60 0 L 0 0 0 60" fill="none" stroke="currentColor" strokeWidth="0.5" className="text-primary" />
-              </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#grid)" />
-          </svg>
-        </div>
-        <div className="relative z-10 mb-2">
-          <img src="/logo-dark.svg" alt="Tosselcom" className="w-40 mb-2" />
-          
-        </div>
-        <div className="relative z-10 space-y-8 -mt-20">
-          <h1 className="text-4xl xl:text-5xl font-bold text-secondary-foreground leading-tight text-balance">
-            Connecting freight,<br />reducing empty miles.
-          </h1>
-          <p className="text-lg text-secondary-foreground/70 max-w-md leading-relaxed">
-            The digital marketplace for small businesses and independent truckers to find loads, post routes, and move smarter.
-          </p>
-          <div className="flex gap-8 pt-4">
-            <div>
-              <p className="text-3xl font-bold text-primary-foreground">2.4K+</p>
-              <p className="text-sm text-secondary-foreground/60">Active Truckers</p>
-            </div>
-            <div>
-              <p className="text-3xl font-bold text-primary-foreground">18K+</p>
-              <p className="text-sm text-secondary-foreground/60">Shipments Matched</p>
-            </div>
-            <div>
-              <p className="text-3xl font-bold text-primary-foreground">94%</p>
-              <p className="text-sm text-secondary-foreground/60">Load Efficiency</p>
-            </div>
-          </div>
-        </div>
-        <div className="relative z-10">
-          <p className="text-xs text-secondary-foreground/40">Copyright 2026 &copy; Tosselcom All Right Reserved.</p>
-        </div>
-      </div>
+      <AuthLeftPanel />
 
       {/* Right Panel - Login Form */}
-      <div className="flex flex-1 flex-col justify-center px-6 py-12 lg:px-16 xl:px-24 bg-background">
+      <div className="flex flex-1 flex-col justify-center px-6 py-12 lg:ml-[41.666667vw] lg:px-16 xl:px-24 bg-background">
         <div className="mx-auto w-full max-w-md">
           {/* Mobile Logo */}
           <div className="mb-10 lg:hidden flex justify-center">
