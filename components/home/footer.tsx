@@ -1,6 +1,5 @@
 import Link from "next/link"
 import { Linkedin, Facebook, Instagram } from "lucide-react"
-import logo from "../public/Logo-dark.svg"
 
 export default function Footer() {
   return (
@@ -9,7 +8,7 @@ export default function Footer() {
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-8">
           <div>
             <div className="flex items-center gap-2.5 mb-4">
-              <img src={logo.src} alt="Tosselcom" className="w-28" />
+              <img src="/logo dark.svg" alt="Tosselcom" className="w-28" />
             </div>
             <div className="flex gap-4">
               <button

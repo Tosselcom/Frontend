@@ -5,7 +5,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Eye, EyeOff, ArrowRight } from "lucide-react"
 import axios from "axios"
-import AuthLeftPanel from "@/components/auth-left-panel"
+import AuthLeftPanel from "@/components/auth/auth-left-panel"
 export default function LoginPage() {
   const router = useRouter()
   const [showPassword, setShowPassword] = useState(false)
@@ -49,11 +49,11 @@ export default function LoginPage() {
       <div className="flex flex-1 flex-col justify-center px-6 py-12 lg:ml-[41.666667vw] lg:px-16 xl:px-24 bg-background">
         <div className="mx-auto w-full max-w-md">
           {/* Mobile Logo */}
-          <div className="mb-10 lg:hidden flex justify-center">
-            <img src="/Logo.svg" alt="Tosselcom" className="w-40" />
+          <div className="-mt-6 mb-2 lg:hidden flex justify-center">
+            <img src="/logo white.svg" alt="Tosselcom" className="w-56" />
           </div>
 
-          <div className="mb-8">
+          <div className="mb-8 text-center">
             <h2 className="text-3xl font-bold text-foreground tracking-tight">Welcome back</h2>
             <p className="mt-2 text-muted-foreground">Sign in to your account to continue</p>
           </div>

@@ -5,7 +5,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Eye, EyeOff, ArrowRight } from "lucide-react"
 import axios from "axios"
-import AuthLeftPanel from "@/components/auth-left-panel"
+import AuthLeftPanel from "@/components/auth/auth-left-panel"
 
 export default function SignupPage() {
   const router = useRouter()
@@ -49,20 +49,20 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen lg:h-screen lg:overflow-hidden">
       <AuthLeftPanel />
 
       {/* Right Panel - Signup Form */}
       <div className="flex flex-1 flex-col justify-center px-6 py-12 lg:ml-[41.666667vw] lg:px-16 xl:px-20 bg-background">
         <div className="mx-auto w-full max-w-lg">
           {/* Mobile Logo */}
-          <div className="mb-8 lg:hidden">
-            <img src="/Logo.svg" alt="Tosselcom" className="w-40" />
+          <div className="-mt-6 mb-2 flex justify-center lg:hidden">
+            
+            <img src="/logo white.svg" alt="FI TRI9I" className="w-56" />
           </div>
 
-          <div className="mb-8">
+          <div className="mb-6 text-center">
             <h2 className="text-3xl font-bold text-foreground tracking-tight">Create your account</h2>
-            <p className="mt-2 text-muted-foreground">Get started with FI TRI9I in minutes</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">

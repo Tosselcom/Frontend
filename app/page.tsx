@@ -14,11 +14,11 @@ import {
   Users,
   Globe,
 } from "lucide-react"
-import Navbar from "@/components/navbar"
-import Footer from "@/components/footer"
-import CTASection from "@/components/cta-section"
-import LogisticsHero from "@/components/logistics-hero"
-import ScrollReveal from "@/components/scroll-reveal"
+import Navbar from "@/components/home/navbar"
+import Footer from "@/components/home/footer"
+import CTASection from "@/components/home/cta-section"
+import LogisticsHero from "@/components/home/logistics-hero"
+import ScrollReveal from "@/components/home/scroll-reveal"
 
 export default function HomePage() {
   return (
@@ -79,7 +79,7 @@ export default function HomePage() {
           </ScrollReveal>
           <div className="grid md:grid-cols-3 gap-8">
             {[
-              { step: "01", title: "Sign Up & Choose Role", desc: "Register as a shipper or trucker. Set up your profile with your business info and preferences.", icon: Users },
+              { step: "01", title: "Sign Up", desc: "Set up your profile with your business info and preferences.", icon: Users },
               { step: "02", title: "Post or Browse", desc: "Shippers post shipments, truckers post routes. Our engine automatically finds the best matches.", icon: Globe },
               { step: "03", title: "Connect & Deliver", desc: "Get matched, share contact details, confirm pickups and deliveries with photo proof.", icon: CheckCircle2 },
             ].map((step, i) => (

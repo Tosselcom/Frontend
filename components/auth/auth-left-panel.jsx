@@ -13,11 +13,11 @@ export default function AuthLeftPanel() {
       </div>
       <div className="pointer-events-none absolute right-0 top-0 h-full w-px bg-secondary-foreground/20" aria-hidden="true" />
 
-      <div className="relative z-10">
-        <img src="/logo-dark.svg" alt="Tosselcom" className="w-40 mb-4" />
+      <div className="relative z-10 ">
+        <img src="/logo dark.svg" alt="Tosselcom" className="w-80 mb-4" />
       </div>
 
-      <div className="relative z-10 flex-1 flex flex-col justify-center space-y-6">
+      <div className="relative z-10 flex-1 flex flex-col justify-center space-y-6 -mt-6">
         <h1 className="text-4xl xl:text-5xl font-bold text-secondary-foreground leading-tight text-balance">
           Connect the right load <br /> to the right truck.
         </h1>

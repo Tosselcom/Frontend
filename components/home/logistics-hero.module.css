@@ -2,7 +2,7 @@
   position: relative;
   min-height: 100svh;
   overflow: hidden;
-  background-image: linear-gradient(120deg, hsl(var(--secondary) / 0.86), hsl(var(--secondary) / 0.58)), url("/pexels-tima-miroshnichenko-6169056.jpg");
+  background-image: linear-gradient(120deg, hsl(var(--secondary) / 0.86), hsl(var(--secondary) / 0.58)), url("/hero-photo.jpg");
   background-position: center;
   background-size: cover;
   background-repeat: no-repeat;
