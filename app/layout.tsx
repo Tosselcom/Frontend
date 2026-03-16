@@ -1,6 +1,5 @@
 import { Outfit } from 'next/font/google'
 import './globals.css'
-import { Icon } from 'lucide-react'
 
 const outfit = Outfit({
   subsets: ['latin'],

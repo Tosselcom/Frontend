@@ -3,7 +3,6 @@
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { InteractiveHoverButton } from "@/components/ui/interactive-hover-button"
-import { Typewriter } from "@/components/ui/typewriter-text"
 import styles from "./logistics-hero.module.css"
 
 export default function LogisticsHero() {
@@ -11,24 +10,15 @@ export default function LogisticsHero() {
 
   return (
     <section className={styles.hero}>
-
       <div className={styles.heroInner}>
         <div className={styles.layout}>
           <div className={styles.copy}>
-            
-
             <h1 className={styles.headline}>
-              <Typewriter
-                text={["Welcome to FI TRI9I", "Connect the right load to the right truck.", "Move freight Smarter not emptier."]}
-                speed={100}
-                loop={true}
-                highlightWords={["FI TRI9I", "Connect", "Smarter"]}
-                highlightClassName="text-primary"
-              />
+              <span className="text-primary">Connect</span> the right load to the right truck.
             </h1>
 
             <p className={styles.subtitle}>
-              FI TRI9I connects shippers with truckers to reduce empty return trips, lower costs, and maximize every mile on the road.
+              FI TRi9i connects shippers with truckers to reduce empty return trips, lower costs, and maximize every mile on the road.
             </p>
 
             <div className={styles.ctaRow}>

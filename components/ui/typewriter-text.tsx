@@ -132,12 +132,12 @@ export function Typewriter({
     currentIndex,
     isDeleting,
     currentText,
+    textArray.length,
     loop,
     speed,
     deleteSpeed,
     delay,
     displayText,
-    text,
   ]);
 
   return (

@@ -50,7 +50,7 @@ export default function LoginPage() {
         <div className="mx-auto w-full max-w-md">
           {/* Mobile Logo */}
           <div className="-mt-6 mb-2 lg:hidden flex justify-center">
-            <img src="/logo white.svg" alt="Tosselcom" className="w-56" />
+          <img src="/logo white.svg" alt="FI TRi9i" className="w-56" />
           </div>
 
           <div className="mb-8 text-center">
