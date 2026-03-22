@@ -1,15 +1,18 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Eye, EyeOff, ArrowRight } from "lucide-react"
 import axios from "axios"
+import { Country, City } from "country-state-city"
 import AuthLeftPanel from "@/components/auth/auth-left-panel"
-import { getApiUrl } from "@/lib/api"
+import { discoverApiBaseUrl, getApiUrl } from "@/lib/api"
 
 export default function SignupPage() {
   const router = useRouter()
+  const countryOptions = useMemo(() => Country.getAllCountries(), [])
+  const [countryCode, setCountryCode] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [formData, setFormData] = useState({
@@ -23,13 +26,42 @@ export default function SignupPage() {
     password: "",
   })
 
+  const cityOptions = useMemo(() => {
+    if (!countryCode) return []
+    return City.getCitiesOfCountry(countryCode) || []
+  }, [countryCode])
+
+  useEffect(() => {
+    if (!countryCode) {
+      setFormData((prev) => ({ ...prev, city: "" }))
+    }
+  }, [countryCode])
+
   const handleSubmit = async (e) => {
     e.preventDefault()
+
+    const selectedCountry = countryOptions.find((country) => country.isoCode === countryCode)
+    if (!selectedCountry) {
+      alert("Please select a valid country")
+      return
+    }
+
+    const selectedCity = cityOptions.find((city) => city.name === formData.city)
+    if (!selectedCity) {
+      alert("Please select a valid city")
+      return
+    }
+
     setIsLoading(true)
     try {
+      await discoverApiBaseUrl({ force: true })
       const response = await axios.post(
         getApiUrl("/user/auth/register"),
-        formData
+        {
+          ...formData,
+          country: selectedCountry.name,
+          city: selectedCity.name,
+        }
       )
 
       if (response.status === 200) {
@@ -96,25 +128,43 @@ export default function SignupPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="city" className="block text-sm font-medium text-foreground mb-1.5">City</label>
-                  <input
+                  <select
                     id="city"
-                    type="text"
+                    required
+                    disabled={!countryCode}
                     value={formData.city}
                     onChange={(e) => setFormData({ ...formData, city: e.target.value })}
                     className="w-full rounded-lg border border-input bg-card px-4 py-3 text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
-                    placeholder="Oran"
-                  />
+                  >
+                    <option value="">{countryCode ? "Select city" : "Select country first"}</option>
+                    {cityOptions.map((city) => (
+                      <option key={`${city.name}-${city.latitude}-${city.longitude}`} value={city.name}>{city.name}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label htmlFor="country" className="block text-sm font-medium text-foreground mb-1.5">Country</label>
-                  <input
+                  <select
                     id="country"
-                    type="text"
-                    value={formData.country}
-                    onChange={(e) => setFormData({ ...formData, country: e.target.value })}
+                    required
+                    value={countryCode}
+                    onChange={(e) => {
+                      const nextCode = e.target.value
+                      const selected = countryOptions.find((country) => country.isoCode === nextCode)
+                      setCountryCode(nextCode)
+                      setFormData((prev) => ({
+                        ...prev,
+                        country: selected?.name || "",
+                        city: "",
+                      }))
+                    }}
                     className="w-full rounded-lg border border-input bg-card px-4 py-3 text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
-                    placeholder="Algeria"
-                  />
+                  >
+                    <option value="">Select country</option>
+                    {countryOptions.map((country) => (
+                      <option key={country.isoCode} value={country.isoCode}>{country.name}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 

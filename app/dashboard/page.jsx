@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import axios from 'axios'
+import { io } from 'socket.io-client'
 import {
   Menu,
   X,
@@ -22,9 +23,11 @@ import {
   Trash2,
   Plus,
   ChevronRight,
+  PhoneCall,
 } from 'lucide-react'
 import DashboardSidebar from '@/components/dashboard-sidebar'
-import { getApiUrl } from '@/lib/api'
+import WilayaSelector from '@/components/ui/wilaya-selector'
+import { discoverApiBaseUrl, getApiBaseUrl, getApiUrl } from '@/lib/api'
 
 const DEFAULT_USER = { name: 'John User', email: 'john@tosselcom.com', role: 'shared', photo: '' }
 const SHIPMENT_STATUS_FLOW = ['posted', 'matched', 'in_transit', 'delivered']
@@ -84,16 +87,8 @@ function formatStatusTimestamp(value) {
 }
 
 function getInitialUser() {
-  if (typeof window === 'undefined') return DEFAULT_USER
-
-  const userStr = sessionStorage.getItem('user')
-  if (!userStr) return DEFAULT_USER
-
-  try {
-    return JSON.parse(userStr)
-  } catch {
-    return DEFAULT_USER
-  }
+  // Keep first render deterministic to avoid hydration mismatch.
+  return DEFAULT_USER
 }
 
 function getStoredToken() {
@@ -106,6 +101,30 @@ function parseNumericInput(value) {
   const normalized = String(value).replace(',', '.').replace(/[^\d.-]/g, '').trim()
   if (!normalized) return Number.NaN
   return Number(normalized)
+}
+
+function formatWeightKg(value) {
+  if (value == null || value === '') return 'N/A'
+  const raw = String(value).trim()
+  if (!raw) return 'N/A'
+  if (/kg$/i.test(raw)) return raw
+  return `${raw} kg`
+}
+
+function formatVolumeM3(value) {
+  if (value == null || value === '') return 'N/A'
+  const raw = String(value).trim()
+  if (!raw) return 'N/A'
+  if (/m\^?3$/i.test(raw) || /m³$/i.test(raw)) return raw
+  return `${raw} m^3`
+}
+
+function getDialablePhone(rawPhone) {
+  if (!rawPhone) return ''
+  const normalized = String(rawPhone).replace(/[^\d+]/g, '').trim()
+  if (!normalized) return ''
+  if (normalized.startsWith('+')) return normalized
+  return normalized.replace(/^00/, '+')
 }
 
 function formatDateDisplay(dateValue) {
@@ -129,7 +148,7 @@ function mapDeliveryPostFromDb(row) {
     weight: String(row.weight ?? ''),
     capacity: String(row.volume ?? ''),
     quantity: String(row.quantity ?? 1),
-    dimensions: 'N/A',
+    dimensions: row.volume != null ? String(row.volume) : 'N/A',
     category: row.itemCategory || 'general',
     description: row.description || '',
     type: row.itemCategory || 'general',
@@ -153,6 +172,7 @@ function mapAvailabilityPostFromDb(row) {
     stops: Number(row.numberOfStops ?? 0),
     departure: row.date || formatDateDisplay(row.created_at),
     postType: row.postType || 'full_route',
+    availableCity: row.available_city || '',
     isLive: false,
     driverName: row.ownerName || row.ownerEmail || 'Unknown user',
     currentStop: '',
@@ -236,11 +256,12 @@ export default function DashboardPage() {
   const [routeDestinationFilter, setRouteDestinationFilter] = useState('')
   const [routeCapacityFilter, setRouteCapacityFilter] = useState('')
   const [detailView, setDetailView] = useState({ type: null, id: null })
+  const realtimeSocketRef = useRef(null)
   const [showRouteModal, setShowRouteModal] = useState(false)
   const [showShipmentModal, setShowShipmentModal] = useState(false)
   const [isSubmittingShipment, setIsSubmittingShipment] = useState(false)
   const [routePostType, setRoutePostType] = useState('full_route')
-  const [formData, setFormData] = useState({ from: '', to: '', capacity: '', stops: '', departure: '' })
+  const [formData, setFormData] = useState({ from: '', to: '', capacity: '', stops: '', departure: '', availableCity: '' })
   const [shipmentFormData, setShipmentFormData] = useState({
     itemName: '',
     origin: '',
@@ -254,6 +275,22 @@ export default function DashboardPage() {
     description: '',
     photo: '',
   })
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const userStr = sessionStorage.getItem('user')
+    if (!userStr) return
+
+    try {
+      const parsed = JSON.parse(userStr)
+      if (parsed && typeof parsed === 'object') {
+        setUser((prev) => ({ ...prev, ...parsed }))
+      }
+    } catch {
+      // Ignore invalid storage payload and keep default user.
+    }
+  }, [])
   
   // Data State
   const [shipmentItems, setShipmentItems] = useState([
@@ -319,74 +356,13 @@ export default function DashboardPage() {
     { id: 'ROUTE-003', from: 'Bouira', to: 'Tizi Ouzou', capacity: '3.5', available: '1.2', stops: 4, departure: getDemoDateLabel(1, 25), postType: 'full_route', isLive: true, driverName: 'Amine S.', currentStop: 'Lakhdaria', lastSeen: '5 min ago', ownerId: 'amine@north-transport.com', ownerName: 'Amine S.' },
   ])
   
-  const [matchingItems, setMatchingItems] = useState([
-    {
-      id: 'MATCH-001',
-      percentage: 92,
-      type: 'new',
-      direction: 'shipper_to_trucker',
-      description: 'Alger -> Oran route has 1.5 tons free capacity. Invite this driver for your delivery post.',
-      invited: false,
-      accepted: false,
-    },
-    {
-      id: 'MATCH-002',
-      percentage: 87,
-      type: 'older',
-      direction: 'trucker_to_shipper',
-      description: 'Constantine -> Blida driver is available and fits your cargo date and size.',
-      invited: false,
-      accepted: false,
-    },
-  ])
-  const [receivedInvitations, setReceivedInvitations] = useState([
-    {
-      id: 'INV-001',
-      senderRole: 'trucker',
-      senderName: 'Nassim K.',
-      linkedPostType: 'route',
-      linkedPostId: 'ROUTE-001',
-      status: 'pending',
-      receivedAt: '09:20 AM',
-      message: 'I can take your delivery on my current route.',
-    },
-    {
-      id: 'INV-002',
-      senderRole: 'client',
-      senderName: 'Sara M.',
-      linkedPostType: 'shipment',
-      linkedPostId: 'SHP-2024-002',
-      status: 'pending',
-      receivedAt: '10:05 AM',
-      message: 'Can you confirm availability for this shipment?',
-    },
-  ])
-  const [selectedInvitationId, setSelectedInvitationId] = useState('INV-001')
+  const [matchingItems, setMatchingItems] = useState([])
+  const [receivedInvitations, setReceivedInvitations] = useState([])
+  const [sentInvitations, setSentInvitations] = useState([])
+  const [selectedInvitationId, setSelectedInvitationId] = useState('')
   const [sentInvitationKeys, setSentInvitationKeys] = useState({})
-  
-  const [baseNotifications, setBaseNotifications] = useState([
-    {
-      id: 'NOT-001',
-      title: 'New shipment match',
-      description: 'Route matches 92% with your load',
-      eventType: 'relevant_post_found',
-      targetRole: 'shipper',
-    },
-    {
-      id: 'NOT-002',
-      title: 'Pickup confirmed',
-      description: 'Shipment #SHP-2024-002 picked up',
-      eventType: 'shipment_status_updated',
-      targetRole: 'shipper',
-    },
-    {
-      id: 'NOT-003',
-      title: 'Delivery completed',
-      description: 'Package arrived at destination',
-      eventType: 'shipment_status_updated',
-      targetRole: 'shipper',
-    },
-  ])
+
+  const [baseNotifications, setBaseNotifications] = useState([])
   const [readNotificationIds, setReadNotificationIds] = useState([])
 
   const myShipmentItems = useMemo(
@@ -503,7 +479,7 @@ export default function DashboardPage() {
   const notifications = useMemo(
     () => [...invitationNotifications, ...relevantPostNotifications, ...baseNotifications].map((notification) => ({
       ...notification,
-      isRead: readNotificationIds.includes(notification.id),
+      isRead: Boolean(notification.isRead) || readNotificationIds.includes(notification.id),
     })),
     [invitationNotifications, relevantPostNotifications, baseNotifications, readNotificationIds],
   )
@@ -518,6 +494,97 @@ export default function DashboardPage() {
     document.documentElement.lang = meta.code
     document.documentElement.dir = meta.dir
   }, [uiLanguage])
+
+  const refreshDashboardData = async () => {
+    const token = getStoredToken()
+    if (!token) return
+
+    const headers = { token }
+
+    try {
+      const [
+        allDeliveryRes,
+        allAvailabilityRes,
+        myDeliveryRes,
+        myAvailabilityRes,
+        receivedInvitationsRes,
+        sentInvitationsRes,
+        notificationsRes,
+      ] = await Promise.all([
+        axios.get(getApiUrl('/posts/delivery'), { headers }),
+        axios.get(getApiUrl('/posts/availability'), { headers }),
+        axios.get(getApiUrl('/posts/delivery/mine'), { headers }),
+        axios.get(getApiUrl('/posts/availability/mine'), { headers }),
+        axios.get(getApiUrl('/invitations/received'), { headers }),
+        axios.get(getApiUrl('/invitations/sent'), { headers }),
+        axios.get(getApiUrl('/notifications'), { headers }),
+      ])
+
+      const allDeliveryRows = Array.isArray(allDeliveryRes.data) ? allDeliveryRes.data : []
+      const allAvailabilityRows = Array.isArray(allAvailabilityRes.data) ? allAvailabilityRes.data : []
+      const myDeliveryRows = Array.isArray(myDeliveryRes.data) ? myDeliveryRes.data : []
+      const myAvailabilityRows = Array.isArray(myAvailabilityRes.data) ? myAvailabilityRes.data : []
+      const receivedRows = Array.isArray(receivedInvitationsRes.data) ? receivedInvitationsRes.data : []
+      const sentRows = Array.isArray(sentInvitationsRes.data) ? sentInvitationsRes.data : []
+      const notificationRows = Array.isArray(notificationsRes.data) ? notificationsRes.data : []
+
+      const myDeliveryIds = new Set(myDeliveryRows.map((row) => row.id))
+      const myAvailabilityIds = new Set(myAvailabilityRows.map((row) => row.id))
+
+      const mergedDeliveryRows = allDeliveryRows.map((row) => {
+        if (!myDeliveryIds.has(row.id)) return row
+        const mine = myDeliveryRows.find((myRow) => myRow.id === row.id)
+        return mine || row
+      })
+
+      const mergedAvailabilityRows = allAvailabilityRows.map((row) => {
+        if (!myAvailabilityIds.has(row.id)) return row
+        const mine = myAvailabilityRows.find((myRow) => myRow.id === row.id)
+        return mine || row
+      })
+
+      let mappedShipments = mergedDeliveryRows.map(mapDeliveryPostFromDb)
+      const mappedRoutes = mergedAvailabilityRows.map(mapAvailabilityPostFromDb)
+
+      const myRouteWithAvailableCity = mappedRoutes.find((route) => (
+        getUserOwnerKey({ email: route.ownerId, name: route.ownerName }) === currentUserKey
+        && route.availableCity
+      ))
+
+      if (myRouteWithAvailableCity?.availableCity) {
+        try {
+          const sortedResponse = await axios.get(
+            getApiUrl(`/api/posts/delivery-posts/sorted?available_city=${encodeURIComponent(myRouteWithAvailableCity.availableCity)}`),
+            { headers }
+          )
+          const sortedRows = Array.isArray(sortedResponse.data) ? sortedResponse.data : []
+          if (sortedRows.length > 0) {
+            mappedShipments = sortedRows.map(mapDeliveryPostFromDb)
+          }
+        } catch {
+          // Keep default ordering if sorted endpoint fails.
+        }
+      }
+
+      setShipmentItems(mappedShipments)
+      setRouteItems(mappedRoutes)
+      setReceivedInvitations(receivedRows)
+      setSentInvitations(sentRows)
+      setBaseNotifications(notificationRows)
+      setReadNotificationIds(notificationRows.filter((row) => row.isRead).map((row) => row.id))
+
+      if (receivedRows.length > 0) {
+        setSelectedInvitationId((prev) => {
+          const exists = receivedRows.some((row) => row.id === prev)
+          return exists ? prev : receivedRows[0].id
+        })
+      } else {
+        setSelectedInvitationId('')
+      }
+    } catch (error) {
+      pushNotification(error?.response?.data?.message || 'Failed to fetch dashboard data from database')
+    }
+  }
 
   useEffect(() => {
     const handleSettingsUpdated = (event) => {
@@ -544,47 +611,68 @@ export default function DashboardPage() {
   }, [])
 
   useEffect(() => {
-    const token = getStoredToken()
-    if (!token) return
+    let cancelled = false
 
-    const fetchPostsFromDb = async () => {
-      try {
-        const [allDeliveryRes, allAvailabilityRes, myDeliveryRes, myAvailabilityRes] = await Promise.all([
-          axios.get(getApiUrl('/posts/delivery'), { headers: { token } }),
-          axios.get(getApiUrl('/posts/availability'), { headers: { token } }),
-          axios.get(getApiUrl('/posts/delivery/mine'), { headers: { token } }),
-          axios.get(getApiUrl('/posts/availability/mine'), { headers: { token } }),
-        ])
-
-        const allDeliveryRows = Array.isArray(allDeliveryRes.data) ? allDeliveryRes.data : []
-        const allAvailabilityRows = Array.isArray(allAvailabilityRes.data) ? allAvailabilityRes.data : []
-        const myDeliveryRows = Array.isArray(myDeliveryRes.data) ? myDeliveryRes.data : []
-        const myAvailabilityRows = Array.isArray(myAvailabilityRes.data) ? myAvailabilityRes.data : []
-
-        const myDeliveryIds = new Set(myDeliveryRows.map((row) => row.id))
-        const myAvailabilityIds = new Set(myAvailabilityRows.map((row) => row.id))
-
-        const mergedDeliveryRows = allDeliveryRows.map((row) => {
-          if (!myDeliveryIds.has(row.id)) return row
-          const mine = myDeliveryRows.find((myRow) => myRow.id === row.id)
-          return mine || row
-        })
-
-        const mergedAvailabilityRows = allAvailabilityRows.map((row) => {
-          if (!myAvailabilityIds.has(row.id)) return row
-          const mine = myAvailabilityRows.find((myRow) => myRow.id === row.id)
-          return mine || row
-        })
-
-        setShipmentItems(mergedDeliveryRows.map(mapDeliveryPostFromDb))
-        setRouteItems(mergedAvailabilityRows.map(mapAvailabilityPostFromDb))
-      } catch (error) {
-        pushNotification(error?.response?.data?.message || 'Failed to fetch posts from database')
-      }
+    const bootstrapApiAndData = async () => {
+      await discoverApiBaseUrl()
+      if (cancelled) return
+      await refreshDashboardData()
     }
 
-    fetchPostsFromDb()
+    bootstrapApiAndData()
+
+    return () => {
+      cancelled = true
+    }
   }, [])
+
+  useEffect(() => {
+    void discoverApiBaseUrl()
+
+    const userId = Number(user?.id)
+    if (!Number.isFinite(userId) || userId <= 0) return
+
+    const socket = io(getApiBaseUrl(), {
+      transports: ['websocket'],
+      query: { userId: String(userId) },
+    })
+
+    realtimeSocketRef.current = socket
+
+    socket.on('new_notification', (payload) => {
+      if (!payload || !payload.id) return
+
+      setBaseNotifications((prev) => {
+        const exists = prev.some((notification) => notification.id === payload.id)
+        if (exists) return prev
+        return [{ ...payload, isRead: false }, ...prev]
+      })
+
+      if (
+        payload.eventType === 'invite_received'
+        || payload.eventType === 'invite_accepted'
+        || payload.eventType === 'invite_declined'
+        || payload.eventType === 'invite_expired'
+      ) {
+        refreshDashboardData()
+      }
+    })
+
+    socket.on('posts_updated', () => {
+      refreshDashboardData()
+    })
+
+    socket.on('connect_error', () => {
+      // Keep dashboard functional even if realtime channel is unavailable.
+    })
+
+    return () => {
+      socket.disconnect()
+      if (realtimeSocketRef.current === socket) {
+        realtimeSocketRef.current = null
+      }
+    }
+  }, [user?.id])
 
   // Event Handlers
   const handleLogout = () => {
@@ -710,6 +798,7 @@ export default function DashboardPage() {
 
       const newShipment = {
         id: createdId ? `SHP-DB-${createdId}` : `SHP-2024-${String(shipmentItems.length + 1).padStart(3, '0')}`,
+        dbId: createdId || null,
         itemName: shipmentFormData.itemName,
         origin: shipmentFormData.origin,
         destination: shipmentFormData.destination,
@@ -745,7 +834,7 @@ export default function DashboardPage() {
 
   const handlePostRoute = (type = 'full_route') => {
     setRoutePostType(type)
-    setFormData({ from: '', to: '', capacity: '', stops: '', departure: '' })
+    setFormData({ from: '', to: '', capacity: '', stops: '', departure: '', availableCity: '' })
     setShowRouteModal(true)
   }
 
@@ -771,6 +860,7 @@ export default function DashboardPage() {
       postType: routePostType,
       origin: routePostType === 'full_route' ? formData.from : (formData.from || 'Not specified'),
       destination: routePostType === 'full_route' ? formData.to : (formData.to || 'Not specified'),
+      availableCity: formData.availableCity || (routePostType === 'full_route' ? formData.to : formData.from),
       capacity: Number(formData.capacity),
       numberOfStops: routePostType === 'full_route' ? Number.parseInt(formData.stops || '0', 10) : 0,
       date: routePostType === 'full_route' ? formData.departure : (formData.departure || 'Flexible'),
@@ -785,6 +875,7 @@ export default function DashboardPage() {
     
       const newRoute = {
         id: createdId ? `ROUTE-DB-${createdId}` : `ROUTE-${String(routeItems.length + 1).padStart(3, '0')}`,
+        dbId: createdId || null,
         from: routePostType === 'full_route' ? formData.from : (formData.from || 'Not specified'),
         to: routePostType === 'full_route' ? formData.to : (formData.to || 'Not specified'),
         capacity: formData.capacity,
@@ -792,6 +883,7 @@ export default function DashboardPage() {
         stops: routePostType === 'full_route' ? parseInt(formData.stops, 10) : 0,
         departure: routePostType === 'full_route' ? formData.departure : (formData.departure || 'Flexible'),
         postType: routePostType,
+        availableCity: formData.availableCity || (routePostType === 'full_route' ? formData.to : formData.from),
         isLive: false,
         driverName: user?.name || 'Unknown driver',
         currentStop: '',
@@ -804,7 +896,7 @@ export default function DashboardPage() {
       pushNotification(`${routePostType === 'full_route' ? 'Route' : 'Availability'} post created: ${newRoute.id}`)
       setShowRouteModal(false)
       setRoutePostType('full_route')
-      setFormData({ from: '', to: '', capacity: '', stops: '', departure: '' })
+      setFormData({ from: '', to: '', capacity: '', stops: '', departure: '', availableCity: '' })
     } catch (error) {
       pushNotification(error?.response?.data?.message || 'Failed to create availability post')
     }
@@ -842,6 +934,183 @@ export default function DashboardPage() {
     pushNotification(`Route ${id} deleted`)
   }
 
+  const updateShipmentPost = async (id, updates) => {
+    const targetShipment = shipmentItems.find((item) => item.id === id)
+    if (!targetShipment) {
+      pushNotification('Shipment not found')
+      return
+    }
+
+    const normalizedUpdates = {
+      itemName: String(updates?.itemName || '').trim(),
+      origin: String(updates?.origin || '').trim(),
+      destination: String(updates?.destination || '').trim(),
+      weight: String(updates?.weight || '').trim(),
+      capacity: String(updates?.capacity || '').trim(),
+      quantity: String(updates?.quantity || '').trim(),
+      date: String(updates?.date || '').trim(),
+      category: String(updates?.category || '').trim(),
+      description: String(updates?.description || '').trim(),
+    }
+
+    if (!normalizedUpdates.itemName || !normalizedUpdates.origin || !normalizedUpdates.destination || !normalizedUpdates.weight || !normalizedUpdates.capacity || !normalizedUpdates.date) {
+      pushNotification('Please complete all required shipment fields')
+      return
+    }
+
+    if (!targetShipment.dbId) {
+      setShipmentItems((prev) => prev.map((item) => (
+        item.id === id
+          ? {
+              ...item,
+              ...normalizedUpdates,
+            }
+          : item
+      )))
+      pushNotification(`Shipment ${id} updated`)
+      return
+    }
+
+    const token = getStoredToken()
+    if (!token) {
+      pushNotification('Please login again')
+      router.push('/login')
+      return
+    }
+
+    const payload = {
+      itemName: normalizedUpdates.itemName,
+      origin: normalizedUpdates.origin,
+      destination: normalizedUpdates.destination,
+      weight: parseNumericInput(normalizedUpdates.weight),
+      volume: parseNumericInput(normalizedUpdates.capacity),
+      quantity: parseNumericInput(normalizedUpdates.quantity || '1'),
+      deliveryDate: normalizedUpdates.date,
+      itemCategory: normalizedUpdates.category || 'general',
+      description: normalizedUpdates.description || '',
+    }
+
+    try {
+      await axios.put(getApiUrl(`/posts/delivery/${targetShipment.dbId}`), payload, {
+        headers: { token },
+      })
+
+      setShipmentItems((prev) => prev.map((item) => (
+        item.id === id
+          ? {
+              ...item,
+              itemName: normalizedUpdates.itemName,
+              origin: normalizedUpdates.origin,
+              destination: normalizedUpdates.destination,
+              weight: normalizedUpdates.weight,
+              capacity: normalizedUpdates.capacity,
+              quantity: normalizedUpdates.quantity || item.quantity,
+              date: normalizedUpdates.date,
+              category: normalizedUpdates.category || item.category,
+              description: normalizedUpdates.description,
+            }
+          : item
+      )))
+
+      pushNotification(`Shipment ${id} updated successfully`)
+      await refreshDashboardData()
+    } catch (error) {
+      pushNotification(error?.response?.data?.message || 'Failed to update shipment post')
+    }
+  }
+
+  const updateRoutePost = async (id, updates) => {
+    const targetRoute = routeItems.find((item) => item.id === id)
+    if (!targetRoute) {
+      pushNotification('Availability post not found')
+      return
+    }
+
+    const normalizedUpdates = {
+      postType: String(updates?.postType || targetRoute.postType || 'full_route').trim(),
+      from: String(updates?.from || '').trim(),
+      to: String(updates?.to || '').trim(),
+      capacity: String(updates?.capacity || '').trim(),
+      stops: String(updates?.stops || '0').trim(),
+      departure: String(updates?.departure || '').trim(),
+      availableCity: String(updates?.availableCity || '').trim(),
+    }
+
+    if (!normalizedUpdates.capacity) {
+      pushNotification('Capacity is required')
+      return
+    }
+
+    if (normalizedUpdates.postType === 'full_route' && (!normalizedUpdates.from || !normalizedUpdates.to || !normalizedUpdates.departure)) {
+      pushNotification('Please complete route fields for full route post')
+      return
+    }
+
+    if (!targetRoute.dbId) {
+      setRouteItems((prev) => prev.map((item) => (
+        item.id === id
+          ? {
+              ...item,
+              postType: normalizedUpdates.postType,
+              from: normalizedUpdates.postType === 'full_route' ? normalizedUpdates.from : (normalizedUpdates.from || 'Not specified'),
+              to: normalizedUpdates.postType === 'full_route' ? normalizedUpdates.to : (normalizedUpdates.to || 'Not specified'),
+              capacity: normalizedUpdates.capacity,
+              available: normalizedUpdates.capacity,
+              stops: normalizedUpdates.postType === 'full_route' ? Number.parseInt(normalizedUpdates.stops || '0', 10) : 0,
+              departure: normalizedUpdates.departure || 'Flexible',
+              availableCity: normalizedUpdates.availableCity,
+            }
+          : item
+      )))
+      pushNotification(`Availability post ${id} updated`)
+      return
+    }
+
+    const token = getStoredToken()
+    if (!token) {
+      pushNotification('Please login again')
+      router.push('/login')
+      return
+    }
+
+    const payload = {
+      postType: normalizedUpdates.postType,
+      origin: normalizedUpdates.postType === 'full_route' ? normalizedUpdates.from : (normalizedUpdates.from || 'Not specified'),
+      destination: normalizedUpdates.postType === 'full_route' ? normalizedUpdates.to : (normalizedUpdates.to || 'Not specified'),
+      availableCity: normalizedUpdates.availableCity || (normalizedUpdates.postType === 'full_route' ? normalizedUpdates.to : normalizedUpdates.from),
+      capacity: parseNumericInput(normalizedUpdates.capacity),
+      numberOfStops: normalizedUpdates.postType === 'full_route' ? Number.parseInt(normalizedUpdates.stops || '0', 10) : 0,
+      date: normalizedUpdates.departure || 'Flexible',
+    }
+
+    try {
+      await axios.put(getApiUrl(`/posts/availability/${targetRoute.dbId}`), payload, {
+        headers: { token },
+      })
+
+      setRouteItems((prev) => prev.map((item) => (
+        item.id === id
+          ? {
+              ...item,
+              postType: payload.postType,
+              from: payload.origin,
+              to: payload.destination,
+              capacity: String(payload.capacity),
+              available: String(payload.capacity),
+              stops: payload.numberOfStops,
+              departure: payload.date,
+              availableCity: payload.availableCity,
+            }
+          : item
+      )))
+
+      pushNotification(`Availability post ${id} updated successfully`)
+      await refreshDashboardData()
+    } catch (error) {
+      pushNotification(error?.response?.data?.message || 'Failed to update availability post')
+    }
+  }
+
   const toggleShipmentDetails = (id) => {
     setDetailView({ type: 'shipment', id })
   }
@@ -868,6 +1137,8 @@ export default function DashboardPage() {
       invitationId: meta.invitationId || payload?.invitationId || null,
       linkedPostType: meta.linkedPostType || payload?.linkedPostType || null,
       linkedPostId: meta.linkedPostId || payload?.linkedPostId || null,
+      revealedPhone: meta.revealedPhone || payload?.revealedPhone || null,
+      action: meta.action || payload?.action || null,
     }
 
     setBaseNotifications(prev => [newNotification, ...prev])
@@ -875,11 +1146,17 @@ export default function DashboardPage() {
   }
 
   const handleClearNotifications = () => {
+    const token = getStoredToken()
+    if (token) {
+      axios.patch(getApiUrl('/notifications/read-all'), {}, { headers: { token } }).catch(() => null)
+    }
+
     setReadNotificationIds((prev) => {
       const allIds = notifications.map((notification) => notification.id)
       return Array.from(new Set([...prev, ...allIds]))
     })
-    setBaseNotifications([])
+
+    setBaseNotifications((prev) => prev.map((notification) => ({ ...notification, isRead: true })))
   }
 
   const handleToggleNotifications = () => {
@@ -901,6 +1178,13 @@ export default function DashboardPage() {
     setReadNotificationIds((prev) => (
       prev.includes(notification.id) ? prev : [...prev, notification.id]
     ))
+
+    if (notification.dbId) {
+      const token = getStoredToken()
+      if (token) {
+        axios.patch(getApiUrl(`/notifications/${notification.dbId}/read`), {}, { headers: { token } }).catch(() => null)
+      }
+    }
 
     if (notification.deepLink) {
       if (notification.deepLink.invitationId) {
@@ -924,6 +1208,18 @@ export default function DashboardPage() {
         }, 0)
       }
     }
+
+    const dialPhone = getDialablePhone(notification?.action?.phone || notification?.revealedPhone)
+    const canCallNow = notification?.eventType === 'invite_accepted' && Boolean(dialPhone)
+
+    if (canCallNow && typeof window !== 'undefined') {
+      window.location.href = `tel:${dialPhone}`
+    }
+  }
+
+  const handleNotificationCallClick = (event, notification) => {
+    event.stopPropagation()
+    handleNotificationClick(notification)
   }
 
   const handleOpenSettings = () => {
@@ -946,8 +1242,40 @@ export default function DashboardPage() {
     })
   }
 
-  const getInvitationKey = (source, referenceId) => `${source}:${referenceId}`
-  const isInvitationSent = (source, referenceId) => Boolean(sentInvitationKeys[getInvitationKey(source, referenceId)])
+  const getInvitationKey = (source, referenceId, sourcePostId = 'none') => `${source}:${sourcePostId}:${referenceId}`
+  const isInvitationSent = (source, referenceId, sourcePostId = 'none') => Boolean(sentInvitationKeys[getInvitationKey(source, referenceId, sourcePostId)])
+
+  const resolveInvitationPayload = (target, source, sourcePost = null) => {
+    if (!target) return null
+
+    if (source === 'route') {
+      const senderShipment = sourcePost?.dbId
+        ? myShipmentItems.find((shipment) => shipment.dbId === sourcePost.dbId)
+        : null
+      if (!senderShipment || !target.dbId) return null
+      return {
+        availabilityPostId: target.dbId,
+        deliveryPostId: senderShipment.dbId,
+        senderPostType: 'delivery',
+        senderPostId: senderShipment.dbId,
+      }
+    }
+
+    if (source === 'community_shipment' || source === 'route_relevant_shipment') {
+      const senderRoute = sourcePost?.dbId
+        ? myRouteItems.find((route) => route.dbId === sourcePost.dbId)
+        : null
+      if (!senderRoute || !target.dbId) return null
+      return {
+        availabilityPostId: senderRoute.dbId,
+        deliveryPostId: target.dbId,
+        senderPostType: 'availability',
+        senderPostId: senderRoute.dbId,
+      }
+    }
+
+    return null
+  }
 
   useEffect(() => {
     const handleUserUpdated = (event) => {
@@ -960,16 +1288,37 @@ export default function DashboardPage() {
     return () => window.removeEventListener('user:updated', handleUserUpdated)
   }, [])
 
-  const contactShipper = (target, source = 'general') => {
+  const contactShipper = async (target, source = 'general', sourcePost = null) => {
     const referenceId = typeof target === 'string' ? target : target?.id
     if (!referenceId) return
-    setSentInvitationKeys((prev) => ({ ...prev, [getInvitationKey(source, referenceId)]: true }))
-    const actionLabel = source === 'route' ? 'Invitation sent to trucker' : 'Invitation sent'
-    pushNotification(`${actionLabel}: ${referenceId}`, {
-      eventType: 'invite_sent',
-      targetRole: source === 'route' ? 'trucker' : 'shipper',
-      deepLink: { section: 'matching' },
-    })
+
+    const token = getStoredToken()
+    if (!token) {
+      pushNotification('Please login again')
+      router.push('/login')
+      return
+    }
+
+    const payload = resolveInvitationPayload(target, source, sourcePost)
+    if (!payload) {
+      pushNotification('Select your source post first, then invite from that post.')
+      return
+    }
+
+    const sourcePostKey = String(sourcePost?.id || sourcePost?.dbId || 'none')
+
+    try {
+      const response = await axios.post(getApiUrl('/invitations'), payload, { headers: { token } })
+      setSentInvitationKeys((prev) => ({ ...prev, [getInvitationKey(source, referenceId, sourcePostKey)]: true }))
+      pushNotification(response?.data?.message || `Invitation sent: ${referenceId}`, {
+        eventType: 'invite_sent',
+        targetRole: source === 'route' ? 'trucker' : 'shipper',
+        deepLink: { section: 'matching' },
+      })
+      await refreshDashboardData()
+    } catch (error) {
+      pushNotification(error?.response?.data?.message || 'Failed to send invitation')
+    }
   }
 
   const handleAcceptLoad = (matchItem) => {
@@ -1002,32 +1351,64 @@ export default function DashboardPage() {
     setSelectedInvitationId(invitationId)
   }
 
-  const handleAcceptReceivedInvitation = (invitationId) => {
-    setReceivedInvitations((prev) => prev.map((invitation) => (
-      invitation.id === invitationId
-        ? { ...invitation, status: 'accepted' }
-        : invitation
-    )))
-    pushNotification(`Invitation accepted: ${invitationId}`, {
-      eventType: 'invite_accepted',
-      targetRole: 'shared',
-      invitationId,
-      deepLink: { section: 'matching', invitationId },
-    })
+  const handleAcceptReceivedInvitation = async (invitationId) => {
+    const token = getStoredToken()
+    const dbInvitationId = Number(String(invitationId).replace('INV-', ''))
+
+    if (!token || !dbInvitationId) {
+      pushNotification('Invalid invitation or expired session')
+      return
+    }
+
+    try {
+      const response = await axios.post(
+        getApiUrl(`/invitations/${dbInvitationId}/accept`),
+        {},
+        { headers: { token } }
+      )
+      const revealedPhone = response?.data?.revealToRecipient
+      pushNotification(
+        revealedPhone
+          ? `Invitation accepted. Call: ${revealedPhone}`
+          : `Invitation accepted: ${invitationId}`,
+        {
+          eventType: 'invite_accepted',
+          targetRole: 'shared',
+          invitationId,
+          deepLink: { section: 'matching', invitationId },
+        }
+      )
+      await refreshDashboardData()
+    } catch (error) {
+      pushNotification(error?.response?.data?.message || 'Failed to accept invitation')
+    }
   }
 
-  const handleDeclineReceivedInvitation = (invitationId) => {
-    setReceivedInvitations((prev) => prev.map((invitation) => (
-      invitation.id === invitationId
-        ? { ...invitation, status: 'declined' }
-        : invitation
-    )))
-    pushNotification(`Invitation declined: ${invitationId}`, {
-      eventType: 'invite_declined',
-      targetRole: 'shared',
-      invitationId,
-      deepLink: { section: 'matching', invitationId },
-    })
+  const handleDeclineReceivedInvitation = async (invitationId) => {
+    const token = getStoredToken()
+    const dbInvitationId = Number(String(invitationId).replace('INV-', ''))
+
+    if (!token || !dbInvitationId) {
+      pushNotification('Invalid invitation or expired session')
+      return
+    }
+
+    try {
+      await axios.post(
+        getApiUrl(`/invitations/${dbInvitationId}/decline`),
+        {},
+        { headers: { token } }
+      )
+      pushNotification(`Invitation declined: ${invitationId}`, {
+        eventType: 'invite_declined',
+        targetRole: 'shared',
+        invitationId,
+        deepLink: { section: 'matching', invitationId },
+      })
+      await refreshDashboardData()
+    } catch (error) {
+      pushNotification(error?.response?.data?.message || 'Failed to decline invitation')
+    }
   }
 
   // Section-level filters
@@ -1152,6 +1533,16 @@ export default function DashboardPage() {
                               )}
                             </div>
                             <p className="text-muted-foreground text-xs mt-1">{notif.description}</p>
+                            {getDialablePhone(notif?.action?.phone || notif?.revealedPhone) && (
+                              <button
+                                type="button"
+                                onClick={(event) => handleNotificationCallClick(event, notif)}
+                                className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90"
+                              >
+                                <PhoneCall className="h-3.5 w-3.5" />
+                                {tr(uiLanguage, 'Call now', 'Appeler maintenant')}
+                              </button>
+                            )}
                           </div>
                         ))
                       ) : (
@@ -1230,6 +1621,8 @@ export default function DashboardPage() {
                 advanceShipmentStatus={advanceShipmentStatus}
                 deleteShipment={deleteShipment}
                 deleteRoute={deleteRoute}
+                onUpdateShipment={updateShipmentPost}
+                onUpdateRoute={updateRoutePost}
                 contactShipper={contactShipper}
                 isInvitationSent={isInvitationSent}
               />
@@ -1325,6 +1718,7 @@ export default function DashboardPage() {
                     notifications={notifications}
                     handleClearNotifications={handleClearNotifications}
                     onNotificationClick={handleNotificationClick}
+                    onNotificationCall={handleNotificationCallClick}
                   />
                 )}
 
@@ -1382,39 +1776,42 @@ export default function DashboardPage() {
             <div className="space-y-4">
               {routePostType === 'full_route' && (
                 <>
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'From (City)', 'Depuis (Ville)')}</label>
-                    <input
-                      type="text"
-                      placeholder={tr(uiLanguage, 'e.g., Alger', 'ex. Alger')}
-                      value={formData.from}
-                      onChange={(e) => setFormData({ ...formData, from: e.target.value })}
-                      className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                    />
-                  </div>
+                  <WilayaSelector
+                    label={tr(uiLanguage, 'From (City)', 'Depuis (Ville)')}
+                    value={formData.from}
+                    onChange={(nextValue) => setFormData({ ...formData, from: nextValue })}
+                    placeholder={tr(uiLanguage, 'Select departure wilaya', 'Selectionnez la wilaya de depart')}
+                    required
+                  />
                   
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'To (City)', 'Vers (Ville)')}</label>
-                    <input
-                      type="text"
-                      placeholder={tr(uiLanguage, 'e.g., Oran', 'ex. Oran')}
-                      value={formData.to}
-                      onChange={(e) => setFormData({ ...formData, to: e.target.value })}
-                      className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                    />
-                  </div>
+                  <WilayaSelector
+                    label={tr(uiLanguage, 'To (City)', 'Vers (Ville)')}
+                    value={formData.to}
+                    onChange={(nextValue) => setFormData({ ...formData, to: nextValue })}
+                    placeholder={tr(uiLanguage, 'Select destination wilaya', 'Selectionnez la wilaya de destination')}
+                    referenceWilaya={formData.from}
+                    required
+                  />
                 </>
               )}
+
+              <WilayaSelector
+                label={tr(uiLanguage, 'Priority Availability City', 'Ville de disponibilite prioritaire')}
+                value={formData.availableCity}
+                onChange={(nextValue) => setFormData({ ...formData, availableCity: nextValue })}
+                placeholder={tr(uiLanguage, 'Select where you are available first', 'Selectionnez votre ville disponible en priorite')}
+                referenceWilaya={formData.from || formData.to}
+              />
               
               <div>
-                <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Capacity (tons)', 'Capacite (tonnes)')}</label>
+                <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Capacity (kg)', 'Capacite (kg)')}</label>
                 <input
                   type="number"
-                  placeholder={tr(uiLanguage, 'e.g., 3.0', 'ex. 3.0')}
+                  placeholder={tr(uiLanguage, 'e.g., 3000', 'ex. 3000')}
                   value={formData.capacity}
                   onChange={(e) => setFormData({ ...formData, capacity: e.target.value })}
                   className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  step="0.1"
+                  step="1"
                 />
               </div>
               
@@ -1454,7 +1851,7 @@ export default function DashboardPage() {
                 onClick={() => {
                   setShowRouteModal(false)
                   setRoutePostType('full_route')
-                  setFormData({ from: '', to: '', capacity: '', stops: '', departure: '' })
+                  setFormData({ from: '', to: '', capacity: '', stops: '', departure: '', availableCity: '' })
                 }}
                 className="flex-1 px-4 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 transition-colors font-medium"
               >
@@ -1496,30 +1893,25 @@ export default function DashboardPage() {
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'From (City)', 'Depuis (Ville)')}</label>
-                <input
-                  type="text"
-                  placeholder={tr(uiLanguage, 'e.g., Alger', 'ex. Alger')}
-                  value={shipmentFormData.origin}
-                  onChange={(e) => setShipmentFormData({ ...shipmentFormData, origin: e.target.value })}
-                  className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-              </div>
+              <WilayaSelector
+                label={tr(uiLanguage, 'From (City)', 'Depuis (Ville)')}
+                value={shipmentFormData.origin}
+                onChange={(nextValue) => setShipmentFormData({ ...shipmentFormData, origin: nextValue })}
+                placeholder={tr(uiLanguage, 'Select origin wilaya', 'Selectionnez la wilaya d origine')}
+                required
+              />
+              
+              <WilayaSelector
+                label={tr(uiLanguage, 'To (City)', 'Vers (Ville)')}
+                value={shipmentFormData.destination}
+                onChange={(nextValue) => setShipmentFormData({ ...shipmentFormData, destination: nextValue })}
+                placeholder={tr(uiLanguage, 'Select destination wilaya', 'Selectionnez la wilaya de destination')}
+                referenceWilaya={shipmentFormData.origin}
+                required
+              />
               
               <div>
-                <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'To (City)', 'Vers (Ville)')}</label>
-                <input
-                  type="text"
-                  placeholder={tr(uiLanguage, 'e.g., Oran', 'ex. Oran')}
-                  value={shipmentFormData.destination}
-                  onChange={(e) => setShipmentFormData({ ...shipmentFormData, destination: e.target.value })}
-                  className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Weight', 'Poids')}</label>
+                <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Weight (kg)', 'Poids (kg)')}</label>
                 <input
                   type="number"
                   placeholder={tr(uiLanguage, 'e.g., 1500', 'ex. 1500')}
@@ -1532,7 +1924,7 @@ export default function DashboardPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Capacity (Cubic Meters)', 'Capacite (Metres cubes)')}</label>
+                <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Dimensions (m^3)', 'Dimensions (m^3)')}</label>
                 <input
                   type="number"
                   placeholder={tr(uiLanguage, 'e.g., 5.5', 'ex. 5,5')}
@@ -1568,10 +1960,10 @@ export default function DashboardPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Dimensions (optional)', 'Dimensions (optionnelles)')}</label>
+                  <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Dimensions notes (optional)', 'Notes dimensions (optionnelles)')}</label>
                   <input
                     type="text"
-                    placeholder={tr(uiLanguage, 'e.g., 200 x 160 x 35 cm', 'ex. 200 x 160 x 35 cm')}
+                    placeholder={tr(uiLanguage, 'e.g., fragile corners, max stack 2', 'ex. coins fragiles, empilement max 2')}
                     value={shipmentFormData.dimensions}
                     onChange={(e) => setShipmentFormData({ ...shipmentFormData, dimensions: e.target.value })}
                     className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
@@ -1874,7 +2266,7 @@ function ShipmentsSection({
           />
           <input
             type="number"
-            placeholder={tr(uiLanguage, 'Filter by capacity (max)', 'Filtrer par capacite (max)', '   ')}
+            placeholder={tr(uiLanguage, 'Filter by dimensions (m^3 max)', 'Filtrer par dimensions (m^3 max)', '   ')}
             value={shipmentCapacityFilter}
             onChange={(e) => setShipmentCapacityFilter(e.target.value)}
             className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
@@ -1914,9 +2306,6 @@ function ShipmentsSection({
                 routeItems={routeItems}
                 ownershipTag={shipmentViewScope === 'mine' ? 'My Post' : 'Community'}
                 isReadOnly={shipmentViewScope === 'community'}
-                showInvite={shipmentViewScope === 'community'}
-                onInvite={() => contactShipper(shipment, 'community_shipment')}
-                inviteSent={shipmentViewScope === 'community' ? isInvitationSent('community_shipment', shipment.id) : false}
                 onStatusChange={() => advanceShipmentStatus(shipment.id)}
                 onDelete={() => deleteShipment(shipment.id)}
                 onToggleDetails={() => toggleShipmentDetails(shipment.id)}
@@ -2002,7 +2391,7 @@ function RoutesSection({
           />
           <input
             type="number"
-            placeholder={tr(uiLanguage, 'Search by capacity (cubic m)', 'Rechercher par capacite (m3)', '   ')}
+            placeholder={tr(uiLanguage, 'Search by capacity (kg)', 'Rechercher par capacite (kg)', '   ')}
             value={routeCapacityFilter}
             onChange={(e) => setRouteCapacityFilter(e.target.value)}
             className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
@@ -2071,10 +2460,7 @@ function RoutesSection({
                 shipmentItems={shipmentItems}
                 ownershipTag={routeViewScope === 'mine' ? tr(uiLanguage, 'My Post', 'Ma publication', '') : tr(uiLanguage, 'Community', 'Communaute', '')}
                 onDelete={routeViewScope === 'mine' ? () => deleteRoute(route.id) : undefined}
-                onContact={routeViewScope === 'community' ? () => contactShipper(route, 'route') : undefined}
-                contactLabel={routeViewScope === 'community' ? tr(uiLanguage, 'Send Invitation', 'Envoyer une invitation', ' ') : ''}
-                contactSent={routeViewScope === 'community' ? isInvitationSent('route', route.id) : false}
-                onContactRelevantShipment={routeViewScope === 'mine' ? (shipment) => contactShipper(shipment, 'route_relevant_shipment') : undefined}
+                onContactRelevantShipment={routeViewScope === 'mine' ? (shipment) => contactShipper(shipment, 'route_relevant_shipment', route) : undefined}
                 isRelevantShipmentInvitationSent={routeViewScope === 'mine' ? (shipmentId) => isInvitationSent('route_relevant_shipment', shipmentId) : undefined}
                 onToggleDetails={() => toggleRouteDetails(route.id)}
                 showDetails={false}
@@ -2120,6 +2506,14 @@ function MatchingSection({
     }),
     [receivedInvitations, ownedShipmentIds, ownedRouteIds],
   )
+  const shipmentInvitations = useMemo(
+    () => visibleInvitations.filter((invitation) => invitation.linkedPostType === 'shipment'),
+    [visibleInvitations],
+  )
+  const routeInvitations = useMemo(
+    () => visibleInvitations.filter((invitation) => invitation.linkedPostType === 'route'),
+    [visibleInvitations],
+  )
   const selectedInvitation = visibleInvitations.find((item) => item.id === selectedInvitationId) || null
   const linkedShipment = selectedInvitation?.linkedPostType === 'shipment'
     ? shipmentItems.find((shipment) => shipment.id === selectedInvitation.linkedPostId)
@@ -2145,14 +2539,13 @@ function MatchingSection({
         }),
       }))
       .filter(route => !ownedRouteIds.has(route.id))
-      .filter(route => route.relevanceScore >= 35)
       .sort((a, b) => b.relevanceScore - a.relevanceScore)
     : []
 
   const visibleLinkedShipmentRoutes = linkedShipment
     ? (relevantRouteFilter === 'live_truckers'
-      ? linkedShipmentRelevantRoutes.filter(route => route.isLive).slice(0, 3)
-      : linkedShipmentRelevantRoutes.slice(0, 3))
+      ? linkedShipmentRelevantRoutes.filter(route => route.isLive)
+      : linkedShipmentRelevantRoutes)
     : []
 
   return (
@@ -2163,25 +2556,56 @@ function MatchingSection({
       <div className="bg-card border border-border rounded-xl p-6 shadow-sm mb-6">
         <h2 className="text-xl font-bold text-foreground mb-5">{tr(uiLanguage, 'Received Invitations', 'Invitations recues', ' ')}</h2>
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          <div className="xl:col-span-1 space-y-3">
-            {visibleInvitations.length > 0 ? visibleInvitations.map((invitation) => (
-              <button
-                key={invitation.id}
-                onClick={() => handleSelectInvitation(invitation.id)}
-                className={`w-full text-left p-4 rounded-lg border transition-colors ${selectedInvitationId === invitation.id ? 'border-primary bg-primary/5' : 'border-border bg-muted hover:bg-muted/80'}`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-foreground">{invitation.id}</p>
-                  <span className={`text-[11px] px-2 py-1 rounded-full font-semibold ${
-                    invitation.status === 'accepted' ? 'bg-green-100 text-green-700' : invitation.status === 'declined' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
-                  }`}>
-                    {invitation.status}
-                  </span>
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">{t('From', 'De')}: {invitation.senderRole === 'trucker' ? t('Trucker', 'Transporteur') : t('Client', 'Client')} - {invitation.senderName}</p>
-                <p className="text-xs text-muted-foreground mt-1">{invitation.receivedAt}</p>
-              </button>
-            )) : (
+          <div className="xl:col-span-1 space-y-4">
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{t('Invitations For My Shipments', 'Invitations pour mes livraisons')}</p>
+              {shipmentInvitations.length > 0 ? shipmentInvitations.map((invitation) => (
+                <button
+                  key={invitation.id}
+                  onClick={() => handleSelectInvitation(invitation.id)}
+                  className={`w-full text-left p-4 rounded-lg border transition-colors ${selectedInvitationId === invitation.id ? 'border-primary bg-primary/5' : 'border-border bg-muted hover:bg-muted/80'}`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-foreground">{invitation.id}</p>
+                    <span className={`text-[11px] px-2 py-1 rounded-full font-semibold ${
+                      invitation.status === 'accepted' ? 'bg-green-100 text-green-700' : invitation.status === 'declined' ? 'bg-red-100 text-red-700' : invitation.status === 'expired' ? 'bg-slate-100 text-slate-700' : 'bg-amber-100 text-amber-700'
+                    }`}>
+                      {invitation.status}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">{t('From', 'De')}: {invitation.senderRole === 'trucker' ? t('Trucker', 'Transporteur') : t('Client', 'Client')} - {invitation.senderName}</p>
+                  <p className="text-xs text-muted-foreground mt-1">{invitation.receivedAt}</p>
+                </button>
+              )) : (
+                <p className="text-xs text-muted-foreground">{t('No shipment invitations.', 'Aucune invitation livraison.')}</p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{t('Invitations For My Routes', 'Invitations pour mes trajets')}</p>
+              {routeInvitations.length > 0 ? routeInvitations.map((invitation) => (
+                <button
+                  key={invitation.id}
+                  onClick={() => handleSelectInvitation(invitation.id)}
+                  className={`w-full text-left p-4 rounded-lg border transition-colors ${selectedInvitationId === invitation.id ? 'border-primary bg-primary/5' : 'border-border bg-muted hover:bg-muted/80'}`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-foreground">{invitation.id}</p>
+                    <span className={`text-[11px] px-2 py-1 rounded-full font-semibold ${
+                      invitation.status === 'accepted' ? 'bg-green-100 text-green-700' : invitation.status === 'declined' ? 'bg-red-100 text-red-700' : invitation.status === 'expired' ? 'bg-slate-100 text-slate-700' : 'bg-amber-100 text-amber-700'
+                    }`}>
+                      {invitation.status}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">{t('From', 'De')}: {invitation.senderRole === 'trucker' ? t('Trucker', 'Transporteur') : t('Client', 'Client')} - {invitation.senderName}</p>
+                  <p className="text-xs text-muted-foreground mt-1">{invitation.receivedAt}</p>
+                </button>
+              )) : (
+                <p className="text-xs text-muted-foreground">{t('No route invitations.', 'Aucune invitation trajet.')}</p>
+              )}
+            </div>
+
+            {visibleInvitations.length === 0 && (
               <p className="text-sm text-muted-foreground">{t('No invitations received on your posts.', 'Aucune invitation recue sur vos publications.')}</p>
             )}
           </div>
@@ -2304,11 +2728,11 @@ function MatchingSection({
                       </div>
                       <div className="rounded-lg bg-muted p-3 border border-border">
                         <p className="text-xs text-muted-foreground">{t('Capacity', 'Capacite')}</p>
-                        <p className="font-medium text-foreground mt-1">{linkedRoute.capacity} {t('tons', 'tonnes')}</p>
+                        <p className="font-medium text-foreground mt-1">{formatWeightKg(linkedRoute.capacity)}</p>
                       </div>
                       <div className="rounded-lg bg-muted p-3 border border-border">
                         <p className="text-xs text-muted-foreground">{t('Available', 'Disponible')}</p>
-                        <p className="font-medium text-foreground mt-1">{linkedRoute.available} {t('tons', 'tonnes')}</p>
+                        <p className="font-medium text-foreground mt-1">{formatWeightKg(linkedRoute.available)}</p>
                       </div>
                       <div className="rounded-lg bg-muted p-3 border border-border">
                         <p className="text-xs text-muted-foreground">{t('Driver', 'Conducteur')}</p>
@@ -2738,7 +3162,7 @@ function AnalyticsSection({ uiLanguage, shipmentItems, routeItems, matchingItems
 }
 
 // Notifications Section Component
-function NotificationsSection({ uiLanguage, notifications, handleClearNotifications, onNotificationClick }) {
+function NotificationsSection({ uiLanguage, notifications, handleClearNotifications, onNotificationClick, onNotificationCall }) {
   const [notificationFilter, setNotificationFilter] = useState('all')
   const [searchTerm, setSearchTerm] = useState('')
 
@@ -2836,6 +3260,16 @@ function NotificationsSection({ uiLanguage, notifications, handleClearNotificati
                   </div>
                 </div>
                 <p className="text-sm text-muted-foreground mt-1">{notif.description}</p>
+                {getDialablePhone(notif?.action?.phone || notif?.revealedPhone) && (
+                  <button
+                    type="button"
+                    onClick={(event) => onNotificationCall?.(event, notif)}
+                    className="mt-3 inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+                  >
+                    <PhoneCall className="h-3.5 w-3.5" />
+                    {tr(uiLanguage, 'Call now', 'Appeler maintenant')}
+                  </button>
+                )}
               </div>
             ))
           ) : (
@@ -3769,12 +4203,12 @@ function toNormalizedString(value) {
   return String(value || '').trim().toLowerCase()
 }
 
-function parseWeightToTons(weightValue) {
+function parseWeightToKg(weightValue) {
   if (!weightValue) return null
   const raw = String(weightValue).replace(/,/g, '').trim().toLowerCase()
   const numeric = parseFloat(raw)
   if (Number.isNaN(numeric)) return null
-  if (raw.includes('kg')) return numeric / 1000
+  if (raw.includes('kg')) return numeric
   return numeric
 }
 
@@ -3815,12 +4249,12 @@ function computeWeightedRouteRelevance({
   else if (originMatch || destinationMatch) routeScore = 32
   else if (routeIsAvailabilityOnly) routeScore = 22
 
-  const shipmentTons = parseWeightToTons(shipmentWeight)
-  const routeAvailableTons = parseFloat(routeAvailable)
+  const shipmentKg = parseWeightToKg(shipmentWeight)
+  const routeAvailableKg = parseFloat(routeAvailable)
   let capacityScore = 8
-  if (shipmentTons !== null && !Number.isNaN(routeAvailableTons)) {
-    if (routeAvailableTons >= shipmentTons) capacityScore = 25
-    else if (routeAvailableTons >= shipmentTons * 0.8) capacityScore = 12
+  if (shipmentKg !== null && !Number.isNaN(routeAvailableKg)) {
+    if (routeAvailableKg >= shipmentKg) capacityScore = 25
+    else if (routeAvailableKg >= shipmentKg * 0.8) capacityScore = 12
     else capacityScore = 3
   }
 
@@ -3839,7 +4273,7 @@ function computeWeightedRouteRelevance({
 }
 
 // Shipment Card Component
-function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, capacity, quantity, dimensions, category, description, date, status, type, photo, ownerName = '', ownershipTag = '', routeItems, onStatusChange, onDelete, onToggleDetails, showDetails, isReadOnly = false, showInvite = false, onInvite, inviteSent = false }) {
+function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, capacity, quantity, dimensions, category, description, date, status, type, photo, ownerName = '', ownershipTag = '', routeItems, onStatusChange, onDelete, onToggleDetails, showDetails, isReadOnly = false, showInvite = false, onInvite, inviteSent = false, inviteDisabled = false }) {
   const t = (en, fr, ar = en) => tr(uiLanguage, en, fr, ar)
   const [relevantRouteFilter, setRelevantRouteFilter] = useState('all')
   const statusActionLabel = getShipmentStatusActionLabel(status)
@@ -3901,13 +4335,11 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
       })
       return { ...route, relevanceScore: score }
     })
-    .filter(route => route.relevanceScore >= 35)
     .sort((a, b) => b.relevanceScore - a.relevanceScore)
 
-  const relevantRoutePosts = scoredRelevantRoutePosts.slice(0, 3)
+  const relevantRoutePosts = scoredRelevantRoutePosts
   const liveRelevantRoutePosts = scoredRelevantRoutePosts
     .filter(route => route.isLive)
-    .slice(0, 3)
   const visibleRelevantRoutePosts = relevantRouteFilter === 'live_truckers' ? liveRelevantRoutePosts : relevantRoutePosts
 
   return (
@@ -3949,8 +4381,8 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
           <span>{origin} → {destination}</span>
         </div>
         <div className="text-right">
-          <span className="text-foreground font-medium block">{weight}</span>
-          {capacity && <span className="text-xs text-muted-foreground">{t('Capacity', 'Capacite')}: {capacity} m³</span>}
+          <span className="text-foreground font-medium block">{formatWeightKg(weight)}</span>
+          {capacity && <span className="text-xs text-muted-foreground">{t('Dimensions', 'Dimensions')}: {formatVolumeM3(capacity)}</span>}
           {quantity && <span className="text-xs text-muted-foreground">{t('Qty', 'Qte')}: {quantity}</span>}
         </div>
       </div>
@@ -3972,8 +4404,8 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
         <div className="mt-4 pt-4 border-t border-border space-y-2 animate-in fade-in">
           <div className="space-y-1 pb-2">
             <p className="text-xs text-muted-foreground">{t('Item', 'Article')}: <span className="text-foreground">{itemName || t('N/A', 'N/A')}</span></p>
-            <p className="text-xs text-muted-foreground">{t('Weight', 'Poids')}: <span className="text-foreground">{weight || t('N/A', 'N/A')}</span></p>
-            <p className="text-xs text-muted-foreground">{t('Capacity', 'Capacite')}: <span className="text-foreground">{capacity ? `${capacity} m³` : t('N/A', 'N/A')}</span></p>
+            <p className="text-xs text-muted-foreground">{t('Weight', 'Poids')}: <span className="text-foreground">{formatWeightKg(weight)}</span></p>
+            <p className="text-xs text-muted-foreground">{t('Dimensions', 'Dimensions')}: <span className="text-foreground">{capacity ? formatVolumeM3(capacity) : t('N/A', 'N/A')}</span></p>
             <p className="text-xs text-muted-foreground">{t('Quantity', 'Quantite')}: <span className="text-foreground">{quantity || t('N/A', 'N/A')}</span></p>
             <p className="text-xs text-muted-foreground">{t('Category', 'Categorie')}: <span className="text-foreground">{typeLabel[shipmentCategory] || t('General', 'General')}</span></p>
             <p className="text-xs text-muted-foreground">{t('Dimensions', 'Dimensions')}: <span className="text-foreground">{dimensions || t('N/A', 'N/A')}</span></p>
@@ -4020,10 +4452,14 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
           {showInvite && onInvite && (
             <button
               onClick={onInvite}
-              disabled={inviteSent}
-              className={`w-full px-3 py-2 text-xs font-medium rounded transition-colors ${inviteSent ? 'bg-green-600 text-white cursor-default' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
+              disabled={inviteSent || inviteDisabled}
+              className={`w-full px-3 py-2 text-xs font-medium rounded transition-colors ${(inviteSent || inviteDisabled) ? 'bg-slate-400 text-white cursor-default' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
             >
-              {inviteSent ? t('Invitation Sent', 'Invitation envoyee') : t('Send Invitation', 'Envoyer une invitation')}
+              {inviteSent
+                ? t('Invitation Sent', 'Invitation envoyee')
+                : inviteDisabled
+                  ? t('Select source post first', 'Selectionnez d abord le post source')
+                  : t('Send Invitation', 'Envoyer une invitation')}
             </button>
           )}
           {!isReadOnly && (
@@ -4042,7 +4478,7 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
 }
 
 // Route Card Component
-function RouteCard({ uiLanguage, id, from, to, capacity, available, stops, departure, postType = 'full_route', isLive = false, driverName = 'Unknown driver', currentStop = '', lastSeen = 'Offline', ownerName = '', ownershipTag = '', shipmentItems, onDelete, onContact, contactLabel = 'Send Invitation', contactSent = false, onContactRelevantShipment, isRelevantShipmentInvitationSent, onToggleDetails, showDetails, showNestedRelevant = true }) {
+function RouteCard({ uiLanguage, id, from, to, capacity, available, stops, departure, postType = 'full_route', isLive = false, driverName = 'Unknown driver', currentStop = '', lastSeen = 'Offline', ownerName = '', ownershipTag = '', shipmentItems, onDelete, onContact, contactLabel = 'Send Invitation', contactSent = false, contactDisabled = false, onContactRelevantShipment, isRelevantShipmentInvitationSent, onToggleDetails, showDetails, showNestedRelevant = true }) {
   const t = (en, fr, ar = en) => tr(uiLanguage, en, fr, ar)
   const capacityNum = parseFloat(capacity)
   const availableNum = parseFloat(available)
@@ -4063,9 +4499,7 @@ function RouteCard({ uiLanguage, id, from, to, capacity, available, stops, depar
       })
       return { ...shipment, relevanceScore: score }
     })
-    .filter(shipment => shipment.relevanceScore >= 35)
     .sort((a, b) => b.relevanceScore - a.relevanceScore)
-    .slice(0, 3)
 
   return (
     <div className="p-4 bg-muted hover:bg-muted/80 rounded-lg border border-border hover:border-primary/30 transition-all group">
@@ -4102,7 +4536,7 @@ function RouteCard({ uiLanguage, id, from, to, capacity, available, stops, depar
           <MapPin className="w-4 h-4" />
           <span>{from} → {to}</span>
         </div>
-        <span className="text-xs text-muted-foreground flex items-center gap-1">
+          <span className="text-xs text-muted-foreground flex items-center gap-1">
           <Clock className="w-3 h-3" />
           {isAvailabilityOnly ? t('Route not specified', 'Trajet non specifie') : `${stops} ${t('stops', 'arrets')}`}
         </span>
@@ -4116,8 +4550,8 @@ function RouteCard({ uiLanguage, id, from, to, capacity, available, stops, depar
           <p className="text-xs text-muted-foreground">{t('Current stop', 'Arret actuel')}: <span className="text-foreground">{currentStop}</span></p>
         )}
         <div className="flex items-center justify-between text-xs">
-          <span className="text-muted-foreground">{t('Capacity', 'Capacite')}: {capacity} {t('m³', 'm³')}</span>
-          <span className="text-foreground font-medium">{available} {t('m³ available', 'm³ disponibles')}</span>
+          <span className="text-muted-foreground">{t('Capacity', 'Capacite')}: {formatWeightKg(capacity)}</span>
+          <span className="text-foreground font-medium">{formatWeightKg(available)} {t('available', 'disponible')}</span>
         </div>
         <div className="w-full bg-border rounded-full h-2 overflow-hidden">
           <div
@@ -4129,10 +4563,14 @@ function RouteCard({ uiLanguage, id, from, to, capacity, available, stops, depar
       {onContact && (
         <button
           onClick={onContact}
-          disabled={contactSent}
-          className={`w-full px-3 py-2 text-xs font-medium rounded transition-colors ${contactSent ? 'bg-green-600 text-white cursor-default' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
+          disabled={contactSent || contactDisabled}
+          className={`w-full px-3 py-2 text-xs font-medium rounded transition-colors ${(contactSent || contactDisabled) ? 'bg-slate-400 text-white cursor-default' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
         >
-          {contactSent ? t('Invitation Sent', 'Invitation envoyee') : contactLabel}
+          {contactSent
+            ? t('Invitation Sent', 'Invitation envoyee')
+            : contactDisabled
+              ? t('Select source post first', 'Selectionnez d abord le post source')
+              : contactLabel}
         </button>
       )}
 
@@ -4141,8 +4579,8 @@ function RouteCard({ uiLanguage, id, from, to, capacity, available, stops, depar
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground">{t('Post Type', 'Type de publication')}: <span className="text-foreground">{isAvailabilityOnly ? t('Availability only', 'Disponibilite seulement') : t('Full route', 'Trajet complet')}</span></p>
             <p className="text-xs text-muted-foreground">{t('Route', 'Trajet')}: <span className="text-foreground">{from} {t('to', 'vers')} {to}</span></p>
-            <p className="text-xs text-muted-foreground">{t('Capacity', 'Capacite')}: <span className="text-foreground">{capacity} {t('tons', 'tonnes')}</span></p>
-            <p className="text-xs text-muted-foreground">{t('Available', 'Disponible')}: <span className="text-foreground">{available} {t('tons', 'tonnes')}</span></p>
+            <p className="text-xs text-muted-foreground">{t('Capacity', 'Capacite')}: <span className="text-foreground">{formatWeightKg(capacity)}</span></p>
+            <p className="text-xs text-muted-foreground">{t('Available', 'Disponible')}: <span className="text-foreground">{formatWeightKg(available)}</span></p>
             <p className="text-xs text-muted-foreground">{t('Driver', 'Conducteur')}: <span className="text-foreground">{driverName}</span></p>
             <p className="text-xs text-muted-foreground">{t('Live status', 'Statut en direct')}: <span className="text-foreground">{isLive ? t('Live', 'En ligne') : t('Offline', 'Hors ligne')}</span></p>
             {isLive && currentStop && (
@@ -4186,9 +4624,14 @@ function RouteCard({ uiLanguage, id, from, to, capacity, available, stops, depar
   )
 }
 
-function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, currentUserKey, onClose, advanceShipmentStatus, deleteShipment, deleteRoute, contactShipper, isInvitationSent }) {
+function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, currentUserKey, onClose, advanceShipmentStatus, deleteShipment, deleteRoute, onUpdateShipment, onUpdateRoute, contactShipper, isInvitationSent }) {
   const t = (en, fr, ar = en) => tr(uiLanguage, en, fr, ar)
   const [relevantRouteFilter, setRelevantRouteFilter] = useState('all')
+  const [isEditingShipment, setIsEditingShipment] = useState(false)
+  const [isEditingRoute, setIsEditingRoute] = useState(false)
+  const [isSavingEdit, setIsSavingEdit] = useState(false)
+  const [shipmentDraft, setShipmentDraft] = useState({ itemName: '', origin: '', destination: '', weight: '', capacity: '', quantity: '', date: '', category: 'general', description: '' })
+  const [routeDraft, setRouteDraft] = useState({ postType: 'full_route', from: '', to: '', capacity: '', stops: '', departure: '', availableCity: '' })
   if (!detailView?.type || !detailView?.id) return null
 
   const selectedShipment = detailView.type === 'shipment'
@@ -4207,6 +4650,38 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
     ? getUserOwnerKey({ email: selectedRoute.ownerId }) === currentUserKey
     : false
   const canViewRelevantSection = selectedShipment ? selectedShipmentIsMine : selectedRouteIsMine
+  const myDetailRoutes = routeItems.filter((route) => getUserOwnerKey({ email: route.ownerId }) === currentUserKey)
+  const myDetailShipments = shipmentItems.filter((shipment) => getUserOwnerKey({ email: shipment.ownerId }) === currentUserKey)
+
+  useEffect(() => {
+    if (!selectedShipment) return
+    setIsEditingShipment(false)
+    setShipmentDraft({
+      itemName: selectedShipment.itemName || '',
+      origin: selectedShipment.origin || '',
+      destination: selectedShipment.destination || '',
+      weight: selectedShipment.weight || '',
+      capacity: selectedShipment.capacity || '',
+      quantity: selectedShipment.quantity || '1',
+      date: selectedShipment.date || '',
+      category: selectedShipment.category || selectedShipment.type || 'general',
+      description: selectedShipment.description || '',
+    })
+  }, [selectedShipment?.id])
+
+  useEffect(() => {
+    if (!selectedRoute) return
+    setIsEditingRoute(false)
+    setRouteDraft({
+      postType: selectedRoute.postType || 'full_route',
+      from: selectedRoute.from || '',
+      to: selectedRoute.to || '',
+      capacity: selectedRoute.capacity || '',
+      stops: String(selectedRoute.stops ?? 0),
+      departure: selectedRoute.departure || '',
+      availableCity: selectedRoute.availableCity || '',
+    })
+  }, [selectedRoute?.id])
 
   const shipmentRelevantRoutes = selectedShipment
     ? routeItems
@@ -4224,14 +4699,13 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
           routePostType: route.postType,
         }),
       }))
-      .filter(route => route.relevanceScore >= 35)
       .sort((a, b) => b.relevanceScore - a.relevanceScore)
     : []
 
   const visibleShipmentRelevantRoutes = selectedShipment
     ? (relevantRouteFilter === 'live_truckers'
-      ? shipmentRelevantRoutes.filter(route => route.isLive).slice(0, 5)
-      : shipmentRelevantRoutes.slice(0, 5))
+      ? shipmentRelevantRoutes.filter(route => route.isLive)
+      : shipmentRelevantRoutes)
     : []
 
   const routeRelevantShipments = selectedRoute
@@ -4250,10 +4724,30 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
           routePostType: selectedRoute.postType,
         }),
       }))
-      .filter(shipment => shipment.relevanceScore >= 35)
       .sort((a, b) => b.relevanceScore - a.relevanceScore)
-      .slice(0, 5)
     : []
+
+  const handleSaveShipmentEdit = async () => {
+    if (!selectedShipment) return
+    setIsSavingEdit(true)
+    try {
+      await onUpdateShipment?.(selectedShipment.id, shipmentDraft)
+      setIsEditingShipment(false)
+    } finally {
+      setIsSavingEdit(false)
+    }
+  }
+
+  const handleSaveRouteEdit = async () => {
+    if (!selectedRoute) return
+    setIsSavingEdit(true)
+    try {
+      await onUpdateRoute?.(selectedRoute.id, routeDraft)
+      setIsEditingRoute(false)
+    } finally {
+      setIsSavingEdit(false)
+    }
+  }
 
   return (
     <>
@@ -4284,7 +4778,7 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
               </div>
               <div className="rounded-lg border border-border bg-muted p-3">
                 <p className="text-xs text-muted-foreground">{t('Weight', 'Poids')}</p>
-                <p className="text-sm font-semibold text-foreground mt-1">{selectedShipment.weight || t('N/A', 'N/A')}</p>
+                <p className="text-sm font-semibold text-foreground mt-1">{selectedShipment.weight ? formatWeightKg(selectedShipment.weight) : t('N/A', 'N/A')}</p>
               </div>
               <div className="rounded-lg border border-border bg-muted p-3">
                 <p className="text-xs text-muted-foreground">{t('Quantity', 'Quantite')}</p>
@@ -4304,7 +4798,7 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
               </div>
               <div className="rounded-lg border border-border bg-muted p-3">
                 <p className="text-xs text-muted-foreground">{t('Dimensions', 'Dimensions')}</p>
-                <p className="text-sm font-semibold text-foreground mt-1">{selectedShipment.dimensions || t('N/A', 'N/A')}</p>
+                <p className="text-sm font-semibold text-foreground mt-1">{selectedShipment.capacity ? formatVolumeM3(selectedShipment.capacity) : t('N/A', 'N/A')}</p>
               </div>
             </div>
 
@@ -4329,6 +4823,12 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
               {selectedShipmentIsMine ? (
                 <>
                   <button
+                    onClick={() => setIsEditingShipment((prev) => !prev)}
+                    className="px-4 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 transition-colors text-sm font-medium"
+                  >
+                    {isEditingShipment ? t('Cancel Edit', 'Annuler la modification') : t('Edit Post', 'Modifier la publication')}
+                  </button>
+                  <button
                     onClick={() => advanceShipmentStatus(selectedShipment.id)}
                     disabled={!getNextShipmentStatus(selectedShipment.status)}
                     className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed"
@@ -4343,15 +4843,33 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
                   </button>
                 </>
               ) : (
-                <button
-                  onClick={() => contactShipper(selectedShipment, 'community_shipment')}
-                  disabled={isInvitationSent?.('community_shipment', selectedShipment.id)}
-                  className={`px-4 py-2 rounded-lg transition-colors text-sm font-medium ${isInvitationSent?.('community_shipment', selectedShipment.id) ? 'bg-green-600 text-white cursor-default' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
-                >
-                  {isInvitationSent?.('community_shipment', selectedShipment.id) ? t('Invitation Sent', 'Invitation envoyee') : t('Send Invitation', 'Envoyer une invitation')}
-                </button>
+                <p className="text-xs text-muted-foreground">{t('Invitations are only available from your own post details.', 'Les invitations sont disponibles uniquement depuis les details de votre propre publication.')}</p>
               )}
             </div>
+
+            {selectedShipmentIsMine && isEditingShipment && (
+              <div className="rounded-lg border border-border bg-background p-4 space-y-3">
+                <p className="text-sm font-semibold text-foreground">{t('Edit shipment post', 'Modifier la publication livraison')}</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <input value={shipmentDraft.itemName} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, itemName: e.target.value }))} placeholder={t('Item name', 'Nom de l article')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                  <input value={shipmentDraft.category} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, category: e.target.value }))} placeholder={t('Category', 'Categorie')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                  <input value={shipmentDraft.origin} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, origin: e.target.value }))} placeholder={t('Departure city', 'Ville de depart')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                  <input value={shipmentDraft.destination} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, destination: e.target.value }))} placeholder={t('Destination city', 'Ville de destination')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                  <input value={shipmentDraft.weight} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, weight: e.target.value }))} placeholder={t('Weight (kg)', 'Poids (kg)')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                  <input value={shipmentDraft.capacity} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, capacity: e.target.value }))} placeholder={t('Dimensions (m^3)', 'Dimensions (m^3)')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                  <input value={shipmentDraft.quantity} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, quantity: e.target.value }))} placeholder={t('Quantity', 'Quantite')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                  <input value={shipmentDraft.date} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, date: e.target.value }))} placeholder={t('Delivery date', 'Date de livraison')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                </div>
+                <textarea value={shipmentDraft.description} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, description: e.target.value }))} placeholder={t('Description', 'Description')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm min-h-[80px]" />
+                <button
+                  onClick={handleSaveShipmentEdit}
+                  disabled={isSavingEdit}
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm font-medium disabled:opacity-60"
+                >
+                  {isSavingEdit ? t('Saving...', 'Enregistrement...') : t('Save Changes', 'Enregistrer les modifications')}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -4377,11 +4895,11 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
               </div>
               <div className="rounded-lg border border-border bg-muted p-3">
                 <p className="text-xs text-muted-foreground">{t('Capacity', 'Capacite')}</p>
-                <p className="text-sm font-semibold text-foreground mt-1">{selectedRoute.capacity} {t('tons', 'tonnes')}</p>
+                <p className="text-sm font-semibold text-foreground mt-1">{formatWeightKg(selectedRoute.capacity)}</p>
               </div>
               <div className="rounded-lg border border-border bg-muted p-3">
                 <p className="text-xs text-muted-foreground">{t('Available', 'Disponible')}</p>
-                <p className="text-sm font-semibold text-foreground mt-1">{selectedRoute.available} {t('tons', 'tonnes')}</p>
+                <p className="text-sm font-semibold text-foreground mt-1">{formatWeightKg(selectedRoute.available)}</p>
               </div>
               <div className="rounded-lg border border-border bg-muted p-3">
                 <p className="text-xs text-muted-foreground">{t('Stops', 'Arrets')}</p>
@@ -4391,22 +4909,49 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
 
             <div className="flex flex-wrap gap-2">
               {selectedRouteIsMine ? (
-                <button
-                  onClick={() => deleteRoute(selectedRoute.id)}
-                  className="px-4 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 transition-colors text-sm font-medium"
-                >
-                  {t('Delete Post', 'Supprimer la publication')}
-                </button>
+                <>
+                  <button
+                    onClick={() => setIsEditingRoute((prev) => !prev)}
+                    className="px-4 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 transition-colors text-sm font-medium"
+                  >
+                    {isEditingRoute ? t('Cancel Edit', 'Annuler la modification') : t('Edit Post', 'Modifier la publication')}
+                  </button>
+                  <button
+                    onClick={() => deleteRoute(selectedRoute.id)}
+                    className="px-4 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 transition-colors text-sm font-medium"
+                  >
+                    {t('Delete Post', 'Supprimer la publication')}
+                  </button>
+                </>
               ) : (
-                <button
-                  onClick={() => contactShipper(selectedRoute, 'route')}
-                  disabled={isInvitationSent?.('route', selectedRoute.id)}
-                  className={`px-4 py-2 rounded-lg transition-colors text-sm font-medium ${isInvitationSent?.('route', selectedRoute.id) ? 'bg-green-600 text-white cursor-default' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
-                >
-                  {isInvitationSent?.('route', selectedRoute.id) ? t('Invitation Sent', 'Invitation envoyee') : t('Send Invitation', 'Envoyer une invitation')}
-                </button>
+                <p className="text-xs text-muted-foreground">{t('Invitations are only available from your own post details.', 'Les invitations sont disponibles uniquement depuis les details de votre propre publication.')}</p>
               )}
             </div>
+
+            {selectedRouteIsMine && isEditingRoute && (
+              <div className="rounded-lg border border-border bg-background p-4 space-y-3">
+                <p className="text-sm font-semibold text-foreground">{t('Edit availability post', 'Modifier la publication disponibilite')}</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <select value={routeDraft.postType} onChange={(e) => setRouteDraft((prev) => ({ ...prev, postType: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm">
+                    <option value="full_route">{t('Full route', 'Trajet complet')}</option>
+                    <option value="availability_only">{t('Availability only', 'Disponibilite seulement')}</option>
+                  </select>
+                  <input value={routeDraft.availableCity} onChange={(e) => setRouteDraft((prev) => ({ ...prev, availableCity: e.target.value }))} placeholder={t('Available city', 'Ville disponible')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                  <input value={routeDraft.from} onChange={(e) => setRouteDraft((prev) => ({ ...prev, from: e.target.value }))} placeholder={t('Departure city', 'Ville de depart')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                  <input value={routeDraft.to} onChange={(e) => setRouteDraft((prev) => ({ ...prev, to: e.target.value }))} placeholder={t('Destination city', 'Ville de destination')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                  <input value={routeDraft.capacity} onChange={(e) => setRouteDraft((prev) => ({ ...prev, capacity: e.target.value }))} placeholder={t('Capacity (kg)', 'Capacite (kg)')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                  <input value={routeDraft.stops} onChange={(e) => setRouteDraft((prev) => ({ ...prev, stops: e.target.value }))} placeholder={t('Stops', 'Arrets')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                  <input value={routeDraft.departure} onChange={(e) => setRouteDraft((prev) => ({ ...prev, departure: e.target.value }))} placeholder={t('Departure date', 'Date de depart')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                </div>
+                <button
+                  onClick={handleSaveRouteEdit}
+                  disabled={isSavingEdit}
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm font-medium disabled:opacity-60"
+                >
+                  {isSavingEdit ? t('Saving...', 'Enregistrement...') : t('Save Changes', 'Enregistrer les modifications')}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -4415,7 +4960,7 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
         <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <h2 className="text-xl font-bold text-foreground">
-            {selectedShipment ? t('Most Relevant Availability Posts', 'Publications de disponibilite les plus pertinentes') : t('Most Relevant Delivery Posts', 'Publications de livraison les plus pertinentes')}
+            {selectedShipment ? t('All Availability Posts (sorted by relevance)', 'Toutes les publications disponibilite (tries par pertinence)') : t('All Delivery Posts (sorted by relevance)', 'Toutes les publications livraison (tries par pertinence)')}
           </h2>
           {selectedShipment && (
             <div className="flex items-center gap-1 rounded-md bg-muted p-1">
@@ -4461,7 +5006,7 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
                 </div>
                 <div className="rounded-lg border border-border bg-background p-3">
                   <p className="text-xs text-muted-foreground">{t('Available', 'Disponible')}</p>
-                  <p className="font-semibold text-foreground mt-1">{route.available} {t('tons', 'tonnes')}</p>
+                  <p className="font-semibold text-foreground mt-1">{formatWeightKg(route.available)}</p>
                 </div>
                 <div className="rounded-lg border border-border bg-background p-3">
                   <p className="text-xs text-muted-foreground">Departure date</p>
@@ -4482,11 +5027,11 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
               </div>
 
               <button
-                onClick={() => contactShipper(route, 'route')}
-                disabled={isInvitationSent?.('route', route.id)}
-                className={`w-full px-4 py-2 rounded-lg transition-colors text-sm font-medium ${isInvitationSent?.('route', route.id) ? 'bg-green-600 text-white cursor-default' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
+                onClick={() => contactShipper(route, 'route', selectedShipment)}
+                disabled={isInvitationSent?.('route', route.id, selectedShipment?.id || 'none')}
+                className={`w-full px-4 py-2 rounded-lg transition-colors text-sm font-medium ${isInvitationSent?.('route', route.id, selectedShipment?.id || 'none') ? 'bg-green-600 text-white cursor-default' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
               >
-                {isInvitationSent?.('route', route.id) ? t('Invitation Sent', 'Invitation envoyee') : t('Send Invitation', 'Envoyer une invitation')}
+                {isInvitationSent?.('route', route.id, selectedShipment?.id || 'none') ? t('Invitation Sent', 'Invitation envoyee') : t('Send Invitation', 'Envoyer une invitation')}
               </button>
             </div>
           ))}
@@ -4505,7 +5050,7 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
                 </div>
                 <div className="rounded-lg border border-border bg-background p-3">
                   <p className="text-xs text-muted-foreground">{t('Weight', 'Poids')}</p>
-                  <p className="font-semibold text-foreground mt-1">{shipment.weight}</p>
+                  <p className="font-semibold text-foreground mt-1">{formatWeightKg(shipment.weight)}</p>
                 </div>
                 <div className="rounded-lg border border-border bg-background p-3">
                   <p className="text-xs text-muted-foreground">Departure city</p>
@@ -4518,11 +5063,11 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
               </div>
 
               <button
-                onClick={() => contactShipper(shipment, 'route_relevant_shipment')}
-                disabled={isInvitationSent?.('route_relevant_shipment', shipment.id)}
-                className={`mt-3 w-full px-4 py-2 rounded-lg transition-colors text-sm font-medium ${isInvitationSent?.('route_relevant_shipment', shipment.id) ? 'bg-green-600 text-white cursor-default' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
+                onClick={() => contactShipper(shipment, 'route_relevant_shipment', selectedRoute)}
+                disabled={isInvitationSent?.('route_relevant_shipment', shipment.id, selectedRoute?.id || 'none')}
+                className={`mt-3 w-full px-4 py-2 rounded-lg transition-colors text-sm font-medium ${isInvitationSent?.('route_relevant_shipment', shipment.id, selectedRoute?.id || 'none') ? 'bg-green-600 text-white cursor-default' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
               >
-                {isInvitationSent?.('route_relevant_shipment', shipment.id) ? t('Invitation Sent', 'Invitation envoyee') : t('Send Invitation', 'Envoyer une invitation')}
+                {isInvitationSent?.('route_relevant_shipment', shipment.id, selectedRoute?.id || 'none') ? t('Invitation Sent', 'Invitation envoyee') : t('Send Invitation', 'Envoyer une invitation')}
               </button>
             </div>
           ))}

@@ -68,6 +68,7 @@ export default function DashboardSidebar({
 
   const handleLogout = () => {
     sessionStorage.removeItem('user')
+    sessionStorage.removeItem('token')
     router.push('/login')
   }
 

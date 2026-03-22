@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { Eye, EyeOff, ArrowRight } from "lucide-react"
 import axios from "axios"
 import AuthLeftPanel from "@/components/auth/auth-left-panel"
-import { getApiUrl } from "@/lib/api"
+import { discoverApiBaseUrl, getApiUrl } from "@/lib/api"
 export default function LoginPage() {
   const router = useRouter()
   const [showPassword, setShowPassword] = useState(false)
@@ -17,6 +17,7 @@ export default function LoginPage() {
     e.preventDefault()
     setIsLoading(true)
     try {
+      await discoverApiBaseUrl({ force: true })
       const response = await axios.post(
         getApiUrl("/user/auth/login"),
         formData
