@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation"
 import { Eye, EyeOff, ArrowRight } from "lucide-react"
 import axios from "axios"
 import AuthLeftPanel from "@/components/auth/auth-left-panel"
+import { getApiUrl } from "@/lib/api"
 
 export default function SignupPage() {
   const router = useRouter()
@@ -27,7 +28,7 @@ export default function SignupPage() {
     setIsLoading(true)
     try {
       const response = await axios.post(
-        "http://localhost:5000/user/auth/register",
+        getApiUrl("/user/auth/register"),
         formData
       )
 

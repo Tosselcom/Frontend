@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
+import axios from 'axios'
 import {
   Menu,
   X,
@@ -23,6 +24,7 @@ import {
   ChevronRight,
 } from 'lucide-react'
 import DashboardSidebar from '@/components/dashboard-sidebar'
+import { getApiUrl } from '@/lib/api'
 
 const DEFAULT_USER = { name: 'John User', email: 'john@tosselcom.com', role: 'shared', photo: '' }
 const SHIPMENT_STATUS_FLOW = ['posted', 'matched', 'in_transit', 'delivered']
@@ -91,6 +93,72 @@ function getInitialUser() {
     return JSON.parse(userStr)
   } catch {
     return DEFAULT_USER
+  }
+}
+
+function getStoredToken() {
+  if (typeof window === 'undefined') return ''
+  return sessionStorage.getItem('token') || ''
+}
+
+function parseNumericInput(value) {
+  if (value == null) return Number.NaN
+  const normalized = String(value).replace(',', '.').replace(/[^\d.-]/g, '').trim()
+  if (!normalized) return Number.NaN
+  return Number(normalized)
+}
+
+function formatDateDisplay(dateValue) {
+  if (!dateValue) return ''
+  const parsed = new Date(dateValue)
+  if (Number.isNaN(parsed.getTime())) return String(dateValue)
+  return parsed.toLocaleDateString('en-US', {
+    month: 'short',
+    day: '2-digit',
+    year: 'numeric',
+  })
+}
+
+function mapDeliveryPostFromDb(row) {
+  return {
+    id: `SHP-DB-${row.id}`,
+    dbId: row.id,
+    itemName: row.itemName,
+    origin: row.origin,
+    destination: row.destination,
+    weight: String(row.weight ?? ''),
+    capacity: String(row.volume ?? ''),
+    quantity: String(row.quantity ?? 1),
+    dimensions: 'N/A',
+    category: row.itemCategory || 'general',
+    description: row.description || '',
+    type: row.itemCategory || 'general',
+    photo: '',
+    date: row.deliveryDate || formatDateDisplay(row.created_at),
+    status: 'posted',
+    statusHistory: [{ status: 'posted', at: row.created_at || new Date().toISOString() }],
+    ownerId: row.ownerEmail || String(row.user_id || ''),
+    ownerName: row.ownerName || row.ownerEmail || 'Unknown user',
+  }
+}
+
+function mapAvailabilityPostFromDb(row) {
+  return {
+    id: `ROUTE-DB-${row.id}`,
+    dbId: row.id,
+    from: row.origin,
+    to: row.destination,
+    capacity: String(row.capacity ?? ''),
+    available: String(row.capacity ?? ''),
+    stops: Number(row.numberOfStops ?? 0),
+    departure: row.date || formatDateDisplay(row.created_at),
+    postType: row.postType || 'full_route',
+    isLive: false,
+    driverName: row.ownerName || row.ownerEmail || 'Unknown user',
+    currentStop: '',
+    lastSeen: 'Offline',
+    ownerId: row.ownerEmail || String(row.user_id || ''),
+    ownerName: row.ownerName || row.ownerEmail || 'Unknown user',
   }
 }
 
@@ -163,12 +231,14 @@ export default function DashboardPage() {
   const [routeTypeFilter, setRouteTypeFilter] = useState('all')
   const [shipmentOriginFilter, setShipmentOriginFilter] = useState('')
   const [shipmentDestinationFilter, setShipmentDestinationFilter] = useState('')
-  const [shipmentProductFilter, setShipmentProductFilter] = useState('')
+  const [shipmentCapacityFilter, setShipmentCapacityFilter] = useState('')
   const [routeOriginFilter, setRouteOriginFilter] = useState('')
   const [routeDestinationFilter, setRouteDestinationFilter] = useState('')
+  const [routeCapacityFilter, setRouteCapacityFilter] = useState('')
   const [detailView, setDetailView] = useState({ type: null, id: null })
   const [showRouteModal, setShowRouteModal] = useState(false)
   const [showShipmentModal, setShowShipmentModal] = useState(false)
+  const [isSubmittingShipment, setIsSubmittingShipment] = useState(false)
   const [routePostType, setRoutePostType] = useState('full_route')
   const [formData, setFormData] = useState({ from: '', to: '', capacity: '', stops: '', departure: '' })
   const [shipmentFormData, setShipmentFormData] = useState({
@@ -176,6 +246,7 @@ export default function DashboardPage() {
     origin: '',
     destination: '',
     weight: '',
+    capacity: '',
     deliveryDate: '',
     quantity: '1',
     dimensions: '',
@@ -192,6 +263,7 @@ export default function DashboardPage() {
       origin: 'Alger',
       destination: 'Oran',
       weight: '1,500 kg',
+      capacity: '2.5',
       quantity: '1 set',
       dimensions: '220 x 110 x 85 cm',
       category: 'fragile',
@@ -209,6 +281,7 @@ export default function DashboardPage() {
       origin: 'Constantine',
       destination: 'Blida',
       weight: '2,300 kg',
+      capacity: '4.2',
       quantity: '12 units',
       dimensions: '200 x 160 x 35 cm',
       category: 'furniture',
@@ -226,6 +299,7 @@ export default function DashboardPage() {
       origin: 'Bouira',
       destination: 'Tizi Ouzou',
       weight: '1,800 kg',
+      capacity: '1.8',
       quantity: '84 boxes',
       dimensions: 'N/A',
       category: 'perishable',
@@ -469,9 +543,53 @@ export default function DashboardPage() {
     return () => window.removeEventListener('hashchange', handleHashChange)
   }, [])
 
+  useEffect(() => {
+    const token = getStoredToken()
+    if (!token) return
+
+    const fetchPostsFromDb = async () => {
+      try {
+        const [allDeliveryRes, allAvailabilityRes, myDeliveryRes, myAvailabilityRes] = await Promise.all([
+          axios.get(getApiUrl('/posts/delivery'), { headers: { token } }),
+          axios.get(getApiUrl('/posts/availability'), { headers: { token } }),
+          axios.get(getApiUrl('/posts/delivery/mine'), { headers: { token } }),
+          axios.get(getApiUrl('/posts/availability/mine'), { headers: { token } }),
+        ])
+
+        const allDeliveryRows = Array.isArray(allDeliveryRes.data) ? allDeliveryRes.data : []
+        const allAvailabilityRows = Array.isArray(allAvailabilityRes.data) ? allAvailabilityRes.data : []
+        const myDeliveryRows = Array.isArray(myDeliveryRes.data) ? myDeliveryRes.data : []
+        const myAvailabilityRows = Array.isArray(myAvailabilityRes.data) ? myAvailabilityRes.data : []
+
+        const myDeliveryIds = new Set(myDeliveryRows.map((row) => row.id))
+        const myAvailabilityIds = new Set(myAvailabilityRows.map((row) => row.id))
+
+        const mergedDeliveryRows = allDeliveryRows.map((row) => {
+          if (!myDeliveryIds.has(row.id)) return row
+          const mine = myDeliveryRows.find((myRow) => myRow.id === row.id)
+          return mine || row
+        })
+
+        const mergedAvailabilityRows = allAvailabilityRows.map((row) => {
+          if (!myAvailabilityIds.has(row.id)) return row
+          const mine = myAvailabilityRows.find((myRow) => myRow.id === row.id)
+          return mine || row
+        })
+
+        setShipmentItems(mergedDeliveryRows.map(mapDeliveryPostFromDb))
+        setRouteItems(mergedAvailabilityRows.map(mapAvailabilityPostFromDb))
+      } catch (error) {
+        pushNotification(error?.response?.data?.message || 'Failed to fetch posts from database')
+      }
+    }
+
+    fetchPostsFromDb()
+  }, [])
+
   // Event Handlers
   const handleLogout = () => {
     sessionStorage.removeItem('user')
+    sessionStorage.removeItem('token')
     router.push('/login')
   }
 
@@ -486,6 +604,7 @@ export default function DashboardPage() {
       origin: '',
       destination: '',
       weight: '',
+      capacity: '',
       deliveryDate: '',
       quantity: '1',
       dimensions: '',
@@ -511,33 +630,117 @@ export default function DashboardPage() {
     reader.readAsDataURL(file)
   }
 
-  const handleSubmitShipment = () => {
-    if (!shipmentFormData.itemName || !shipmentFormData.origin || !shipmentFormData.destination || !shipmentFormData.weight || !shipmentFormData.deliveryDate) {
-      pushNotification('Please fill in all shipment details')
+  const handleSubmitShipment = async () => {
+    if (isSubmittingShipment) {
+      console.warn('Already submitting, ignoring click')
       return
     }
 
-    const newShipment = {
-      id: `SHP-2024-${String(shipmentItems.length + 1).padStart(3, '0')}`,
+    console.log('Starting delivery post submission with data:', shipmentFormData)
+
+    if (!shipmentFormData.itemName || !shipmentFormData.origin || !shipmentFormData.destination || !shipmentFormData.weight || !shipmentFormData.capacity || !shipmentFormData.deliveryDate) {
+      const msg = 'Please fill in all shipment details'
+      console.warn('Validation failed:', msg)
+      pushNotification(msg)
+      return
+    }
+
+    const weightValue = parseNumericInput(shipmentFormData.weight)
+    const volumeValue = parseNumericInput(shipmentFormData.capacity)
+    const quantityValue = parseNumericInput(shipmentFormData.quantity || '1')
+
+    console.log('Parsed values - Weight:', weightValue, 'Volume:', volumeValue, 'Quantity:', quantityValue)
+
+    if (!Number.isFinite(weightValue) || weightValue <= 0) {
+      const msg = 'Weight must be a valid number greater than 0'
+      console.warn('Weight validation failed:', msg, 'Value:', weightValue)
+      pushNotification(msg)
+      return
+    }
+
+    if (!Number.isFinite(volumeValue) || volumeValue <= 0) {
+      const msg = 'Capacity/volume must be a valid number greater than 0'
+      console.warn('Volume validation failed:', msg, 'Value:', volumeValue)
+      pushNotification(msg)
+      return
+    }
+
+    if (!Number.isFinite(quantityValue) || quantityValue <= 0) {
+      const msg = 'Quantity must be a valid number greater than 0'
+      console.warn('Quantity validation failed:', msg, 'Value:', quantityValue)
+      pushNotification(msg)
+      return
+    }
+
+    const token = getStoredToken()
+    if (!token) {
+      const msg = 'Please login again'
+      console.error('No token found')
+      pushNotification(msg)
+      router.push('/login')
+      return
+    }
+
+    const payload = {
       itemName: shipmentFormData.itemName,
       origin: shipmentFormData.origin,
       destination: shipmentFormData.destination,
-      weight: shipmentFormData.weight,
-      quantity: shipmentFormData.quantity || '1',
-      dimensions: shipmentFormData.dimensions || 'N/A',
-      category: shipmentFormData.category,
+      weight: Math.round(weightValue),
+      volume: Math.round(volumeValue),
+      deliveryDate: shipmentFormData.deliveryDate,
+      quantity: Math.round(quantityValue),
+      itemCategory: shipmentFormData.category || 'general',
       description: shipmentFormData.description || '',
-      type: shipmentFormData.category,
-      photo: shipmentFormData.photo,
-      date: shipmentFormData.deliveryDate,
-      status: 'posted',
-      statusHistory: [{ status: 'posted', at: new Date().toISOString() }],
-      ownerId: currentUserKey,
-      ownerName: user?.name || 'Current user',
     }
-    setShipmentItems([newShipment, ...shipmentItems])
-    pushNotification(`Delivery post created: ${newShipment.id}`)
-    closeShipmentModal()
+
+    console.log('Sending payload to backend:', payload)
+
+    try {
+      setIsSubmittingShipment(true)
+      const apiUrl = getApiUrl('/posts/delivery')
+      console.log('API URL:', apiUrl)
+      
+      const response = await axios.post(apiUrl, payload, {
+        headers: { token },
+      })
+
+      console.log('Delivery post created successfully:', response.data)
+
+      const createdId = response.data?.postId
+
+      const newShipment = {
+        id: createdId ? `SHP-DB-${createdId}` : `SHP-2024-${String(shipmentItems.length + 1).padStart(3, '0')}`,
+        itemName: shipmentFormData.itemName,
+        origin: shipmentFormData.origin,
+        destination: shipmentFormData.destination,
+        weight: shipmentFormData.weight,
+        capacity: shipmentFormData.capacity,
+        quantity: shipmentFormData.quantity || '1',
+        dimensions: shipmentFormData.dimensions || 'N/A',
+        category: shipmentFormData.category,
+        description: shipmentFormData.description || '',
+        type: shipmentFormData.category,
+        photo: shipmentFormData.photo,
+        date: shipmentFormData.deliveryDate,
+        status: 'posted',
+        statusHistory: [{ status: 'posted', at: new Date().toISOString() }],
+        ownerId: currentUserKey,
+        ownerName: user?.name || 'Current user',
+      }
+
+      setShipmentItems(prev => [newShipment, ...prev])
+      pushNotification(`Delivery post created: ${newShipment.id}`)
+      alert('Delivery post created successfully')
+      closeShipmentModal()
+    } catch (error) {
+      console.error('Error creating delivery post:', error)
+      const message = error?.response?.data?.message || error?.message || 'Failed to create delivery post'
+      console.error('Error message:', message)
+      pushNotification(message)
+      alert(`Error: ${message}`)
+    } finally {
+      setIsSubmittingShipment(false)
+    }
   }
 
   const handlePostRoute = (type = 'full_route') => {
@@ -546,7 +749,7 @@ export default function DashboardPage() {
     setShowRouteModal(true)
   }
 
-  const handleSubmitRoute = () => {
+  const handleSubmitRoute = async () => {
     if (!formData.capacity) {
       pushNotification('Please fill in capacity')
       return
@@ -556,28 +759,55 @@ export default function DashboardPage() {
       pushNotification('Please fill in all route details')
       return
     }
-    
-    const newRoute = {
-      id: `ROUTE-${String(routeItems.length + 1).padStart(3, '0')}`,
-      from: routePostType === 'full_route' ? formData.from : (formData.from || 'Not specified'),
-      to: routePostType === 'full_route' ? formData.to : (formData.to || 'Not specified'),
-      capacity: formData.capacity,
-      available: formData.capacity,
-      stops: routePostType === 'full_route' ? parseInt(formData.stops) : 0,
-      departure: routePostType === 'full_route' ? formData.departure : (formData.departure || 'Flexible'),
-      postType: routePostType,
-      isLive: false,
-      driverName: user?.name || 'Unknown driver',
-      currentStop: '',
-      lastSeen: 'Offline',
-      ownerId: currentUserKey,
-      ownerName: user?.name || 'Current user',
+
+    const token = getStoredToken()
+    if (!token) {
+      pushNotification('Please login again')
+      router.push('/login')
+      return
     }
-    setRouteItems([newRoute, ...routeItems])
-    pushNotification(`${routePostType === 'full_route' ? 'Route' : 'Availability'} post created: ${newRoute.id}`)
-    setShowRouteModal(false)
-    setRoutePostType('full_route')
-    setFormData({ from: '', to: '', capacity: '', stops: '', departure: '' })
+
+    const payload = {
+      postType: routePostType,
+      origin: routePostType === 'full_route' ? formData.from : (formData.from || 'Not specified'),
+      destination: routePostType === 'full_route' ? formData.to : (formData.to || 'Not specified'),
+      capacity: Number(formData.capacity),
+      numberOfStops: routePostType === 'full_route' ? Number.parseInt(formData.stops || '0', 10) : 0,
+      date: routePostType === 'full_route' ? formData.departure : (formData.departure || 'Flexible'),
+    }
+
+    try {
+      const response = await axios.post(getApiUrl('/posts/availability'), payload, {
+        headers: { token },
+      })
+
+      const createdId = response.data?.postId
+    
+      const newRoute = {
+        id: createdId ? `ROUTE-DB-${createdId}` : `ROUTE-${String(routeItems.length + 1).padStart(3, '0')}`,
+        from: routePostType === 'full_route' ? formData.from : (formData.from || 'Not specified'),
+        to: routePostType === 'full_route' ? formData.to : (formData.to || 'Not specified'),
+        capacity: formData.capacity,
+        available: formData.capacity,
+        stops: routePostType === 'full_route' ? parseInt(formData.stops, 10) : 0,
+        departure: routePostType === 'full_route' ? formData.departure : (formData.departure || 'Flexible'),
+        postType: routePostType,
+        isLive: false,
+        driverName: user?.name || 'Unknown driver',
+        currentStop: '',
+        lastSeen: 'Offline',
+        ownerId: currentUserKey,
+        ownerName: user?.name || 'Current user',
+      }
+
+      setRouteItems(prev => [newRoute, ...prev])
+      pushNotification(`${routePostType === 'full_route' ? 'Route' : 'Availability'} post created: ${newRoute.id}`)
+      setShowRouteModal(false)
+      setRoutePostType('full_route')
+      setFormData({ from: '', to: '', capacity: '', stops: '', departure: '' })
+    } catch (error) {
+      pushNotification(error?.response?.data?.message || 'Failed to create availability post')
+    }
   }
 
   const advanceShipmentStatus = (id) => {
@@ -805,15 +1035,16 @@ export default function DashboardPage() {
     shipmentItems.filter(item => {
       const originMatches = !shipmentOriginFilter || item.origin.toLowerCase().includes(shipmentOriginFilter.toLowerCase())
       const destinationMatches = !shipmentDestinationFilter || item.destination.toLowerCase().includes(shipmentDestinationFilter.toLowerCase())
-      const productMatches = !shipmentProductFilter || (item.itemName || '').toLowerCase().includes(shipmentProductFilter.toLowerCase())
-      return originMatches && destinationMatches && productMatches
-    }), [shipmentItems, shipmentOriginFilter, shipmentDestinationFilter, shipmentProductFilter]
+      const capacityMatches = !shipmentCapacityFilter || (parseFloat(item.capacity) || 0) <= parseFloat(shipmentCapacityFilter)
+      return originMatches && destinationMatches && capacityMatches
+    }), [shipmentItems, shipmentOriginFilter, shipmentDestinationFilter, shipmentCapacityFilter]
   )
 
   const filteredRoutes = useMemo(() => 
     routeItems.filter(item => {
       const originMatches = !routeOriginFilter || item.from.toLowerCase().includes(routeOriginFilter.toLowerCase())
       const destinationMatches = !routeDestinationFilter || item.to.toLowerCase().includes(routeDestinationFilter.toLowerCase())
+      const capacityMatches = !routeCapacityFilter || (parseFloat(item.available) || 0) > parseFloat(routeCapacityFilter)
 
       const typeMatches =
         routeTypeFilter === 'all' ||
@@ -821,8 +1052,8 @@ export default function DashboardPage() {
         (routeTypeFilter === 'full_route' && item.postType === 'full_route') ||
         (routeTypeFilter === 'live_truckers' && item.isLive)
 
-      return originMatches && destinationMatches && typeMatches
-    }), [routeItems, routeOriginFilter, routeDestinationFilter, routeTypeFilter]
+      return originMatches && destinationMatches && capacityMatches && typeMatches
+    }), [routeItems, routeOriginFilter, routeDestinationFilter, routeCapacityFilter, routeTypeFilter]
   )
 
   return (
@@ -1026,10 +1257,10 @@ export default function DashboardPage() {
                     currentUserKey={currentUserKey}
                     shipmentOriginFilter={shipmentOriginFilter}
                     shipmentDestinationFilter={shipmentDestinationFilter}
-                    shipmentProductFilter={shipmentProductFilter}
+                    shipmentCapacityFilter={shipmentCapacityFilter}
                     setShipmentOriginFilter={setShipmentOriginFilter}
                     setShipmentDestinationFilter={setShipmentDestinationFilter}
-                    setShipmentProductFilter={setShipmentProductFilter}
+                    setShipmentCapacityFilter={setShipmentCapacityFilter}
                     advanceShipmentStatus={advanceShipmentStatus}
                     deleteShipment={deleteShipment}
                     contactShipper={contactShipper}
@@ -1050,8 +1281,10 @@ export default function DashboardPage() {
                     setRouteTypeFilter={setRouteTypeFilter}
                     routeOriginFilter={routeOriginFilter}
                     routeDestinationFilter={routeDestinationFilter}
+                    routeCapacityFilter={routeCapacityFilter}
                     setRouteOriginFilter={setRouteOriginFilter}
                     setRouteDestinationFilter={setRouteDestinationFilter}
+                    setRouteCapacityFilter={setRouteCapacityFilter}
                     deleteRoute={deleteRoute}
                     contactShipper={contactShipper}
                     toggleRouteDetails={toggleRouteDetails}
@@ -1288,10 +1521,25 @@ export default function DashboardPage() {
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Weight', 'Poids')}</label>
                 <input
-                  type="text"
-                  placeholder={tr(uiLanguage, 'e.g., 1,500 kg', 'ex. 1 500 kg')}
+                  type="number"
+                  placeholder={tr(uiLanguage, 'e.g., 1500', 'ex. 1500')}
                   value={shipmentFormData.weight}
                   onChange={(e) => setShipmentFormData({ ...shipmentFormData, weight: e.target.value })}
+                  className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                  min="1"
+                  step="1"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Capacity (Cubic Meters)', 'Capacite (Metres cubes)')}</label>
+                <input
+                  type="number"
+                  placeholder={tr(uiLanguage, 'e.g., 5.5', 'ex. 5,5')}
+                  step="0.1"
+                  min="0"
+                  value={shipmentFormData.capacity}
+                  onChange={(e) => setShipmentFormData({ ...shipmentFormData, capacity: e.target.value })}
                   className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
@@ -1310,11 +1558,13 @@ export default function DashboardPage() {
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Quantity', 'Quantite')}</label>
                   <input
-                    type="text"
-                    placeholder={tr(uiLanguage, 'e.g., 4 units', 'ex. 4 unites')}
+                    type="number"
+                    placeholder={tr(uiLanguage, 'e.g., 4', 'ex. 4')}
                     value={shipmentFormData.quantity}
                     onChange={(e) => setShipmentFormData({ ...shipmentFormData, quantity: e.target.value })}
                     className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    min="1"
+                    step="1"
                   />
                 </div>
                 <div>
@@ -1391,9 +1641,12 @@ export default function DashboardPage() {
               </button>
               <button
                 onClick={handleSubmitShipment}
+                disabled={isSubmittingShipment}
                 className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors font-medium"
               >
-                {tr(uiLanguage, 'Post Delivery Request', 'Publier la demande de livraison')}
+                {isSubmittingShipment
+                  ? tr(uiLanguage, 'Publishing...', 'Publication en cours...')
+                  : tr(uiLanguage, 'Post Delivery Request', 'Publier la demande de livraison')}
               </button>
             </div>
           </div>
@@ -1567,10 +1820,10 @@ function ShipmentsSection({
   currentUserKey,
   shipmentOriginFilter,
   shipmentDestinationFilter,
-  shipmentProductFilter,
+  shipmentCapacityFilter,
   setShipmentOriginFilter,
   setShipmentDestinationFilter,
-  setShipmentProductFilter,
+  setShipmentCapacityFilter,
   advanceShipmentStatus,
   deleteShipment,
   contactShipper,
@@ -1620,17 +1873,17 @@ function ShipmentsSection({
             className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
           />
           <input
-            type="text"
-            placeholder={tr(uiLanguage, 'Search by product name', 'Rechercher par nom du produit', '   ')}
-            value={shipmentProductFilter}
-            onChange={(e) => setShipmentProductFilter(e.target.value)}
+            type="number"
+            placeholder={tr(uiLanguage, 'Filter by capacity (max)', 'Filtrer par capacite (max)', '   ')}
+            value={shipmentCapacityFilter}
+            onChange={(e) => setShipmentCapacityFilter(e.target.value)}
             className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
           />
           <button
             onClick={() => {
               setShipmentOriginFilter('')
               setShipmentDestinationFilter('')
-              setShipmentProductFilter('')
+              setShipmentCapacityFilter('')
             }}
             className="px-3 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 transition-colors text-sm font-medium"
           >
@@ -1696,8 +1949,10 @@ function RoutesSection({
   setRouteTypeFilter,
   routeOriginFilter,
   routeDestinationFilter,
+  routeCapacityFilter,
   setRouteOriginFilter,
   setRouteDestinationFilter,
+  setRouteCapacityFilter,
   deleteRoute,
   contactShipper,
   toggleRouteDetails,
@@ -1745,10 +2000,20 @@ function RoutesSection({
             onChange={(e) => setRouteDestinationFilter(e.target.value)}
             className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
           />
+          <input
+            type="number"
+            placeholder={tr(uiLanguage, 'Search by capacity (cubic m)', 'Rechercher par capacite (m3)', '   ')}
+            value={routeCapacityFilter}
+            onChange={(e) => setRouteCapacityFilter(e.target.value)}
+            className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+          />
+        </div>
+        <div className="flex gap-3 mb-4">
           <button
             onClick={() => {
               setRouteOriginFilter('')
               setRouteDestinationFilter('')
+              setRouteCapacityFilter('')
               setRouteTypeFilter('all')
             }}
             className="px-3 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 transition-colors text-sm font-medium"
@@ -3574,7 +3839,7 @@ function computeWeightedRouteRelevance({
 }
 
 // Shipment Card Component
-function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, quantity, dimensions, category, description, date, status, type, photo, ownerName = '', ownershipTag = '', routeItems, onStatusChange, onDelete, onToggleDetails, showDetails, isReadOnly = false, showInvite = false, onInvite, inviteSent = false }) {
+function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, capacity, quantity, dimensions, category, description, date, status, type, photo, ownerName = '', ownershipTag = '', routeItems, onStatusChange, onDelete, onToggleDetails, showDetails, isReadOnly = false, showInvite = false, onInvite, inviteSent = false }) {
   const t = (en, fr, ar = en) => tr(uiLanguage, en, fr, ar)
   const [relevantRouteFilter, setRelevantRouteFilter] = useState('all')
   const statusActionLabel = getShipmentStatusActionLabel(status)
@@ -3685,6 +3950,7 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, q
         </div>
         <div className="text-right">
           <span className="text-foreground font-medium block">{weight}</span>
+          {capacity && <span className="text-xs text-muted-foreground">{t('Capacity', 'Capacite')}: {capacity} m³</span>}
           {quantity && <span className="text-xs text-muted-foreground">{t('Qty', 'Qte')}: {quantity}</span>}
         </div>
       </div>
@@ -3707,6 +3973,7 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, q
           <div className="space-y-1 pb-2">
             <p className="text-xs text-muted-foreground">{t('Item', 'Article')}: <span className="text-foreground">{itemName || t('N/A', 'N/A')}</span></p>
             <p className="text-xs text-muted-foreground">{t('Weight', 'Poids')}: <span className="text-foreground">{weight || t('N/A', 'N/A')}</span></p>
+            <p className="text-xs text-muted-foreground">{t('Capacity', 'Capacite')}: <span className="text-foreground">{capacity ? `${capacity} m³` : t('N/A', 'N/A')}</span></p>
             <p className="text-xs text-muted-foreground">{t('Quantity', 'Quantite')}: <span className="text-foreground">{quantity || t('N/A', 'N/A')}</span></p>
             <p className="text-xs text-muted-foreground">{t('Category', 'Categorie')}: <span className="text-foreground">{typeLabel[shipmentCategory] || t('General', 'General')}</span></p>
             <p className="text-xs text-muted-foreground">{t('Dimensions', 'Dimensions')}: <span className="text-foreground">{dimensions || t('N/A', 'N/A')}</span></p>
@@ -3849,8 +4116,8 @@ function RouteCard({ uiLanguage, id, from, to, capacity, available, stops, depar
           <p className="text-xs text-muted-foreground">{t('Current stop', 'Arret actuel')}: <span className="text-foreground">{currentStop}</span></p>
         )}
         <div className="flex items-center justify-between text-xs">
-          <span className="text-muted-foreground">{t('Capacity', 'Capacite')}: {capacity} {t('tons', 'tonnes')}</span>
-          <span className="text-foreground font-medium">{available} {t('tons available', 'tonnes disponibles')}</span>
+          <span className="text-muted-foreground">{t('Capacity', 'Capacite')}: {capacity} {t('m³', 'm³')}</span>
+          <span className="text-foreground font-medium">{available} {t('m³ available', 'm³ disponibles')}</span>
         </div>
         <div className="w-full bg-border rounded-full h-2 overflow-hidden">
           <div

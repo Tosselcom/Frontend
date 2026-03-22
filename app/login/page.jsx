@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation"
 import { Eye, EyeOff, ArrowRight } from "lucide-react"
 import axios from "axios"
 import AuthLeftPanel from "@/components/auth/auth-left-panel"
+import { getApiUrl } from "@/lib/api"
 export default function LoginPage() {
   const router = useRouter()
   const [showPassword, setShowPassword] = useState(false)
@@ -17,16 +18,28 @@ export default function LoginPage() {
     setIsLoading(true)
     try {
       const response = await axios.post(
-        "http://localhost:5000/user/auth/login",
+        getApiUrl("/user/auth/login"),
         formData
       )
 
       if (response.status === 200) {
         // backend sends { token, user }
-        const { token } = response.data
-        alert(`Login successful. Token: ${token}`)
-        // you could store token in localStorage, etc.
-        router.push("/dashboard/trucker")
+        const { token, user } = response.data
+        sessionStorage.setItem("token", token)
+        if (user) {
+          const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ").trim()
+          sessionStorage.setItem(
+            "user",
+            JSON.stringify({
+              id: user.id,
+              name: fullName || user.email,
+              email: user.email,
+              role: "shared",
+            })
+          )
+        }
+        alert("Login successful")
+        router.push("/dashboard")
       } else {
         console.error("Login failed:", response.data)
         alert("Login failed: " + (response.data.message || "Unknown error"))
