@@ -370,7 +370,7 @@ export default function HomePage() {
       </section>
 
       {/* How it Works */}
-      <section id="guide" className="scroll-mt-24 pt-8 pb-20 lg:pt-2 lg:pb-28 bg-muted">
+      <section id="guide" className="scroll-mt-24 pt-8 pb-0 lg:pt-2 lg:pb-0 bg-muted">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <ScrollReveal className="text-center max-w-2xl mx-auto mb-16">
             <p className="text-sm font-semibold text-accent uppercase tracking-wider mb-3">Guide</p>
@@ -397,20 +397,14 @@ export default function HomePage() {
               </ScrollReveal>
             ))}
           </div>
-        </div>
-      </section>
 
-      {/* For Shippers & Truckers */}
-      <section className="py-20 lg:py-8 bg-muted">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="grid lg:grid-cols-2 gap-12">
-            {/* For Shippers */}
+          <div className="mt-14 lg:mt-16 relative grid lg:grid-cols-2 gap-12 lg:gap-10">
             <ScrollReveal className="group rounded-2xl border border-border bg-card p-8 lg:p-10 transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl hover:shadow-primary/10 hover:border-primary/30">
-              <div className="flex items-center gap-3 mb-6">
+              <div className="mb-6 flex items-center gap-3">
                 <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-primary text-primary-foreground transition-transform duration-300 group-hover:scale-110 group-hover:-rotate-3">
                   <Package className="w-6 h-6" />
                 </div>
-                <h3 className="text-2xl font-bold text-card-foreground">For Shippers</h3>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Post and track loads</p>
               </div>
               <p className="text-muted-foreground mb-6 leading-relaxed">
                 Post your shipments, get matched with reliable truckers, and track your goods from pickup to delivery.
@@ -424,20 +418,21 @@ export default function HomePage() {
                   "View complete shipment history and analytics",
                 ].map((item, i) => (
                   <li key={i} className="flex items-center gap-3 text-sm text-card-foreground">
-                    <CheckCircle2 className="w-5 h-5 text-accent flex-shrink-0" />
+                    <span className="relative inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-primary/20">
+                      <CheckCircle2 className="h-4 w-4 text-primary" />
+                    </span>
                     {item}
                   </li>
                 ))}
               </ul>
             </ScrollReveal>
 
-            {/* For Truckers */}
             <ScrollReveal delay={100} className="group rounded-2xl border border-border bg-card p-8 lg:p-10 transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl hover:shadow-primary/10 hover:border-primary/30">
-              <div className="flex items-center gap-3 mb-6">
+              <div className="mb-6 flex items-center gap-3">
                 <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-primary text-primary-foreground transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3">
                   <Truck className="w-6 h-6" />
                 </div>
-                <h3 className="text-2xl font-bold text-card-foreground">For Truckers</h3>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Publish routes and capacity</p>
               </div>
               <p className="text-muted-foreground mb-6 leading-relaxed">
                 Post your routes and available capacity. Fill empty miles and manage multiple loads on a single trip.
@@ -451,7 +446,9 @@ export default function HomePage() {
                   "Build your reputation with delivery confirmations",
                 ].map((item, i) => (
                   <li key={i} className="flex items-center gap-3 text-sm text-card-foreground">
-                    <CheckCircle2 className="w-5 h-5 text-accent flex-shrink-0" />
+                    <span className="relative inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-primary/20">
+                      <CheckCircle2 className="h-4 w-4 text-primary" />
+                    </span>
                     {item}
                   </li>
                 ))}

@@ -17,10 +17,10 @@ export default function Navbar() {
 
           {/* Desktop Nav */}
           <div className="hidden md:flex items-center gap-8">
-            <Link href="/" className="text-sm text-secondary/70 hover:text-secondary transition-colors">Home</Link>
-            <Link href="/#about-us" className="text-sm text-secondary/70 hover:text-secondary transition-colors">About us</Link>
-            <Link href="/#guide" className="text-sm text-secondary/70 hover:text-secondary transition-colors">Guide</Link>
-            <Link href="/#contact" className="text-sm text-secondary/70 hover:text-secondary transition-colors">Contact</Link>
+            <Link href="/" className="relative text-sm text-secondary/70 hover:text-secondary transition-colors after:content-[''] after:absolute after:left-0 after:right-0 after:-bottom-1 after:h-[2px] after:origin-center after:scale-x-0 after:bg-secondary after:transition-transform after:duration-300 hover:after:scale-x-100">Home</Link>
+            <Link href="/#about-us" className="relative text-sm text-secondary/70 hover:text-secondary transition-colors after:content-[''] after:absolute after:left-0 after:right-0 after:-bottom-1 after:h-[2px] after:origin-center after:scale-x-0 after:bg-secondary after:transition-transform after:duration-300 hover:after:scale-x-100">About us</Link>
+            <Link href="/#guide" className="relative text-sm text-secondary/70 hover:text-secondary transition-colors after:content-[''] after:absolute after:left-0 after:right-0 after:-bottom-1 after:h-[2px] after:origin-center after:scale-x-0 after:bg-secondary after:transition-transform after:duration-300 hover:after:scale-x-100">Guide</Link>
+            <Link href="/#contact" className="relative text-sm text-secondary/70 hover:text-secondary transition-colors after:content-[''] after:absolute after:left-0 after:right-0 after:-bottom-1 after:h-[2px] after:origin-center after:scale-x-0 after:bg-secondary after:transition-transform after:duration-300 hover:after:scale-x-100">Contact</Link>
           </div>
 
           <div className="hidden md:flex items-center gap-3">
