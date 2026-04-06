@@ -19,7 +19,6 @@ import {
   ArrowUp,
   ArrowDown,
   MapPin,
-  Clock,
   Trash2,
   Plus,
   ChevronRight,
@@ -136,6 +135,20 @@ function formatDateDisplay(dateValue) {
     day: '2-digit',
     year: 'numeric',
   })
+}
+
+function resolveDbId(postId, explicitDbId) {
+  const parsedExplicit = Number(explicitDbId)
+  if (Number.isFinite(parsedExplicit) && parsedExplicit > 0) {
+    return parsedExplicit
+  }
+
+  const match = String(postId || '').match(/(?:SHP|ROUTE)-DB-(\d+)/i)
+  if (!match) return null
+
+  const parsedFromId = Number(match[1])
+  if (!Number.isFinite(parsedFromId) || parsedFromId <= 0) return null
+  return parsedFromId
 }
 
 function mapDeliveryPostFromDb(row) {
@@ -293,68 +306,9 @@ export default function DashboardPage() {
   }, [])
   
   // Data State
-  const [shipmentItems, setShipmentItems] = useState([
-    {
-      id: 'SHP-2024-001',
-      itemName: 'Glass dining table set',
-      origin: 'Alger',
-      destination: 'Oran',
-      weight: '1,500 kg',
-      capacity: '2.5',
-      quantity: '1 set',
-      dimensions: '220 x 110 x 85 cm',
-      category: 'fragile',
-      description: 'Packed with corner protection and wrap film.',
-      type: 'fragile',
-      photo: '',
-      date: getDemoDateLabel(1, 20),
-      status: 'matched',
-      ownerId: 'sara@partner-logistics.com',
-      ownerName: 'Sara M.',
-    },
-    {
-      id: 'SHP-2024-002',
-      itemName: 'Wooden bed frame',
-      origin: 'Constantine',
-      destination: 'Blida',
-      weight: '2,300 kg',
-      capacity: '4.2',
-      quantity: '12 units',
-      dimensions: '200 x 160 x 35 cm',
-      category: 'furniture',
-      description: 'Stacked on pallets. Keep dry during transport.',
-      type: 'standard',
-      photo: '',
-      date: getDemoDateLabel(1, 21),
-      status: 'posted',
-      ownerId: DEFAULT_USER.email,
-      ownerName: DEFAULT_USER.name,
-    },
-    {
-      id: 'SHP-2024-003',
-      itemName: 'Fresh dairy products',
-      origin: 'Bouira',
-      destination: 'Tizi Ouzou',
-      weight: '1,800 kg',
-      capacity: '1.8',
-      quantity: '84 boxes',
-      dimensions: 'N/A',
-      category: 'perishable',
-      description: 'Temperature-controlled transport required.',
-      type: 'perishable',
-      photo: '',
-      date: getDemoDateLabel(1, 22),
-      status: 'in_transit',
-      ownerId: 'amine@north-transport.com',
-      ownerName: 'Amine S.',
-    },
-  ])
+  const [shipmentItems, setShipmentItems] = useState([])
   
-  const [routeItems, setRouteItems] = useState([
-    { id: 'ROUTE-001', from: 'Alger', to: 'Oran', capacity: '3.0', available: '1.5', stops: 3, departure: getDemoDateLabel(1, 23), postType: 'full_route', isLive: true, driverName: 'Youcef B.', currentStop: 'Blida', lastSeen: '2 min ago', ownerId: 'youcef@west-fleet.com', ownerName: 'Youcef B.' },
-    { id: 'ROUTE-002', from: 'Constantine', to: 'Blida', capacity: '2.5', available: '2.0', stops: 2, departure: getDemoDateLabel(1, 24), postType: 'full_route', isLive: false, driverName: 'Nassim K.', currentStop: '', lastSeen: 'Offline', ownerId: DEFAULT_USER.email, ownerName: DEFAULT_USER.name },
-    { id: 'ROUTE-003', from: 'Bouira', to: 'Tizi Ouzou', capacity: '3.5', available: '1.2', stops: 4, departure: getDemoDateLabel(1, 25), postType: 'full_route', isLive: true, driverName: 'Amine S.', currentStop: 'Lakhdaria', lastSeen: '5 min ago', ownerId: 'amine@north-transport.com', ownerName: 'Amine S.' },
-  ])
+  const [routeItems, setRouteItems] = useState([])
   
   const [matchingItems, setMatchingItems] = useState([])
   const [receivedInvitations, setReceivedInvitations] = useState([])
@@ -819,14 +773,12 @@ export default function DashboardPage() {
 
       setShipmentItems(prev => [newShipment, ...prev])
       pushNotification(`Delivery post created: ${newShipment.id}`)
-      alert('Delivery post created successfully')
       closeShipmentModal()
     } catch (error) {
       console.error('Error creating delivery post:', error)
       const message = error?.response?.data?.message || error?.message || 'Failed to create delivery post'
       console.error('Error message:', message)
       pushNotification(message)
-      alert(`Error: ${message}`)
     } finally {
       setIsSubmittingShipment(false)
     }
@@ -844,8 +796,18 @@ export default function DashboardPage() {
       return
     }
 
-    if (routePostType === 'full_route' && (!formData.from || !formData.to || !formData.stops || !formData.departure)) {
+    if (routePostType === 'full_route' && (!formData.stops || !formData.departure)) {
       pushNotification('Please fill in all route details')
+      return
+    }
+
+    if (routePostType === 'availability_only' && !formData.availableCity) {
+      pushNotification('Please select your availability city')
+      return
+    }
+
+    if (routePostType === 'full_route' && (!formData.from || !formData.to)) {
+      pushNotification('Please select departure and destination wilayas')
       return
     }
 
@@ -856,11 +818,16 @@ export default function DashboardPage() {
       return
     }
 
+    const routeOrigin = routePostType === 'availability_only' ? formData.availableCity : formData.from
+    const routeDestination = routePostType === 'availability_only' ? formData.availableCity : formData.to
+
     const payload = {
       postType: routePostType,
-      origin: routePostType === 'full_route' ? formData.from : (formData.from || 'Not specified'),
-      destination: routePostType === 'full_route' ? formData.to : (formData.to || 'Not specified'),
-      availableCity: formData.availableCity || (routePostType === 'full_route' ? formData.to : formData.from),
+      origin: routeOrigin,
+      destination: routeDestination,
+      availableCity: routePostType === 'availability_only'
+        ? formData.availableCity
+        : (formData.availableCity || routeDestination || routeOrigin),
       capacity: Number(formData.capacity),
       numberOfStops: routePostType === 'full_route' ? Number.parseInt(formData.stops || '0', 10) : 0,
       date: routePostType === 'full_route' ? formData.departure : (formData.departure || 'Flexible'),
@@ -876,14 +843,16 @@ export default function DashboardPage() {
       const newRoute = {
         id: createdId ? `ROUTE-DB-${createdId}` : `ROUTE-${String(routeItems.length + 1).padStart(3, '0')}`,
         dbId: createdId || null,
-        from: routePostType === 'full_route' ? formData.from : (formData.from || 'Not specified'),
-        to: routePostType === 'full_route' ? formData.to : (formData.to || 'Not specified'),
+        from: routeOrigin,
+        to: routeDestination,
         capacity: formData.capacity,
         available: formData.capacity,
         stops: routePostType === 'full_route' ? parseInt(formData.stops, 10) : 0,
         departure: routePostType === 'full_route' ? formData.departure : (formData.departure || 'Flexible'),
         postType: routePostType,
-        availableCity: formData.availableCity || (routePostType === 'full_route' ? formData.to : formData.from),
+        availableCity: routePostType === 'availability_only'
+          ? formData.availableCity
+          : (formData.availableCity || routeDestination || routeOrigin),
         isLive: false,
         driverName: user?.name || 'Unknown driver',
         currentStop: '',
@@ -924,13 +893,79 @@ export default function DashboardPage() {
     }))
   }
 
-  const deleteShipment = (id) => {
-    setShipmentItems(shipmentItems.filter(item => item.id !== id))
+  const deleteShipment = async (id) => {
+    const targetShipment = shipmentItems.find((item) => item.id === id)
+    if (!targetShipment) {
+      pushNotification('Shipment not found')
+      return
+    }
+
+    const shipmentDbId = resolveDbId(targetShipment.id, targetShipment.dbId)
+
+    if (shipmentDbId) {
+      const token = getStoredToken()
+      if (!token) {
+        pushNotification('Please login again')
+        router.push('/login')
+        return
+      }
+
+      try {
+        await axios.delete(getApiUrl(`/posts/delivery/${shipmentDbId}`), {
+          headers: {
+            token,
+            Authorization: `Bearer ${token}`,
+          },
+        })
+
+        await refreshDashboardData()
+      } catch (error) {
+        pushNotification(error?.response?.data?.message || 'Failed to delete shipment post')
+        return
+      }
+    } else {
+      pushNotification('This post is not persisted in database and cannot be deleted there')
+    }
+
+    setShipmentItems((prev) => prev.filter((item) => item.id !== id))
     pushNotification(`Shipment ${id} deleted`)
   }
 
-  const deleteRoute = (id) => {
-    setRouteItems(routeItems.filter(item => item.id !== id))
+  const deleteRoute = async (id) => {
+    const targetRoute = routeItems.find((item) => item.id === id)
+    if (!targetRoute) {
+      pushNotification('Route not found')
+      return
+    }
+
+    const routeDbId = resolveDbId(targetRoute.id, targetRoute.dbId)
+
+    if (routeDbId) {
+      const token = getStoredToken()
+      if (!token) {
+        pushNotification('Please login again')
+        router.push('/login')
+        return
+      }
+
+      try {
+        await axios.delete(getApiUrl(`/posts/availability/${routeDbId}`), {
+          headers: {
+            token,
+            Authorization: `Bearer ${token}`,
+          },
+        })
+
+        await refreshDashboardData()
+      } catch (error) {
+        pushNotification(error?.response?.data?.message || 'Failed to delete route post')
+        return
+      }
+    } else {
+      pushNotification('This post is not persisted in database and cannot be deleted there')
+    }
+
+    setRouteItems((prev) => prev.filter((item) => item.id !== id))
     pushNotification(`Route ${id} deleted`)
   }
 
@@ -1028,12 +1063,12 @@ export default function DashboardPage() {
 
     const normalizedUpdates = {
       postType: String(updates?.postType || targetRoute.postType || 'full_route').trim(),
-      from: String(updates?.from || '').trim(),
-      to: String(updates?.to || '').trim(),
+      from: String(updates?.from || targetRoute.from || '').trim(),
+      to: String(updates?.to || targetRoute.to || '').trim(),
       capacity: String(updates?.capacity || '').trim(),
       stops: String(updates?.stops || '0').trim(),
       departure: String(updates?.departure || '').trim(),
-      availableCity: String(updates?.availableCity || '').trim(),
+      availableCity: String(updates?.availableCity || targetRoute.availableCity || '').trim(),
     }
 
     if (!normalizedUpdates.capacity) {
@@ -1046,19 +1081,32 @@ export default function DashboardPage() {
       return
     }
 
+    if (normalizedUpdates.postType === 'availability_only' && !normalizedUpdates.availableCity) {
+      pushNotification('Please select your availability city')
+      return
+    }
+
+    if (normalizedUpdates.postType === 'full_route' && (!normalizedUpdates.from || !normalizedUpdates.to)) {
+      pushNotification('Please select departure and destination wilayas')
+      return
+    }
+
+    const routeOrigin = normalizedUpdates.postType === 'availability_only' ? normalizedUpdates.availableCity : normalizedUpdates.from
+    const routeDestination = normalizedUpdates.postType === 'availability_only' ? normalizedUpdates.availableCity : normalizedUpdates.to
+
     if (!targetRoute.dbId) {
       setRouteItems((prev) => prev.map((item) => (
         item.id === id
           ? {
               ...item,
               postType: normalizedUpdates.postType,
-              from: normalizedUpdates.postType === 'full_route' ? normalizedUpdates.from : (normalizedUpdates.from || 'Not specified'),
-              to: normalizedUpdates.postType === 'full_route' ? normalizedUpdates.to : (normalizedUpdates.to || 'Not specified'),
+              from: routeOrigin,
+              to: routeDestination,
               capacity: normalizedUpdates.capacity,
               available: normalizedUpdates.capacity,
               stops: normalizedUpdates.postType === 'full_route' ? Number.parseInt(normalizedUpdates.stops || '0', 10) : 0,
               departure: normalizedUpdates.departure || 'Flexible',
-              availableCity: normalizedUpdates.availableCity,
+              availableCity: normalizedUpdates.availableCity || routeDestination || routeOrigin,
             }
           : item
       )))
@@ -1075,9 +1123,9 @@ export default function DashboardPage() {
 
     const payload = {
       postType: normalizedUpdates.postType,
-      origin: normalizedUpdates.postType === 'full_route' ? normalizedUpdates.from : (normalizedUpdates.from || 'Not specified'),
-      destination: normalizedUpdates.postType === 'full_route' ? normalizedUpdates.to : (normalizedUpdates.to || 'Not specified'),
-      availableCity: normalizedUpdates.availableCity || (normalizedUpdates.postType === 'full_route' ? normalizedUpdates.to : normalizedUpdates.from),
+      origin: routeOrigin,
+      destination: routeDestination,
+      availableCity: normalizedUpdates.availableCity || routeDestination || routeOrigin,
       capacity: parseNumericInput(normalizedUpdates.capacity),
       numberOfStops: normalizedUpdates.postType === 'full_route' ? Number.parseInt(normalizedUpdates.stops || '0', 10) : 0,
       date: normalizedUpdates.departure || 'Flexible',
@@ -1148,15 +1196,12 @@ export default function DashboardPage() {
   const handleClearNotifications = () => {
     const token = getStoredToken()
     if (token) {
-      axios.patch(getApiUrl('/notifications/read-all'), {}, { headers: { token } }).catch(() => null)
+      axios.delete(getApiUrl('/notifications/clear-all'), { headers: { token } }).catch(() => null)
     }
 
-    setReadNotificationIds((prev) => {
-      const allIds = notifications.map((notification) => notification.id)
-      return Array.from(new Set([...prev, ...allIds]))
-    })
-
-    setBaseNotifications((prev) => prev.map((notification) => ({ ...notification, isRead: true })))
+    // Clear all notifications from display
+    setBaseNotifications([])
+    setReadNotificationIds([])
   }
 
   const handleToggleNotifications = () => {
@@ -1690,6 +1735,7 @@ export default function DashboardPage() {
                   <MatchingSection
                     uiLanguage={uiLanguage}
                     shipmentItems={myShipmentItems}
+                    allShipmentItems={shipmentItems}
                     routeItems={myRouteItems}
                     allRouteItems={routeItems}
                     receivedInvitations={receivedInvitations}
@@ -1795,14 +1841,16 @@ export default function DashboardPage() {
                 </>
               )}
 
-              <WilayaSelector
-                label={tr(uiLanguage, 'Priority Availability City', 'Ville de disponibilite prioritaire')}
-                value={formData.availableCity}
-                onChange={(nextValue) => setFormData({ ...formData, availableCity: nextValue })}
-                placeholder={tr(uiLanguage, 'Select where you are available first', 'Selectionnez votre ville disponible en priorite')}
-                referenceWilaya={formData.from || formData.to}
-              />
-              
+              {routePostType === 'availability_only' && (
+                <WilayaSelector
+                  label={tr(uiLanguage, 'Availability City', 'Ville de disponibilite')}
+                  value={formData.availableCity}
+                  onChange={(nextValue) => setFormData({ ...formData, availableCity: nextValue })}
+                  placeholder={tr(uiLanguage, 'Select your availability city', 'Selectionnez votre ville de disponibilite')}
+                  required
+                />
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Capacity (kg)', 'Capacite (kg)')}</label>
                 <input
@@ -2485,6 +2533,7 @@ function RoutesSection({
 function MatchingSection({
   uiLanguage,
   shipmentItems,
+  allShipmentItems,
   routeItems,
   allRouteItems,
   receivedInvitations,
@@ -2522,6 +2571,23 @@ function MatchingSection({
     ? routeItems.find((route) => route.id === selectedInvitation.linkedPostId)
     : null
 
+  const senderShipment = selectedInvitation
+    ? (allShipmentItems || []).find((shipment) => shipment.dbId === selectedInvitation.deliveryPostDbId)
+    : null
+
+  const senderRoute = selectedInvitation
+    ? (allRouteItems || []).find((route) => route.dbId === selectedInvitation.availabilityPostDbId)
+    : null
+
+  const inviterPostType = selectedInvitation?.linkedPostType === 'shipment' ? 'route' : 'shipment'
+  const inviterPost = inviterPostType === 'route' ? senderRoute : senderShipment
+  const isAcceptedAvailabilityOnlyRecipient = Boolean(
+    selectedInvitation
+    && selectedInvitation.status === 'accepted'
+    && linkedRoute
+    && linkedRoute.postType === 'availability_only'
+  )
+
   const linkedShipmentRelevantRoutes = linkedShipment
     ? (allRouteItems || [])
       .map(route => ({
@@ -2534,6 +2600,7 @@ function MatchingSection({
           routeFrom: route.from,
           routeTo: route.to,
           routeAvailable: route.available,
+          routeAvailableCity: route.availableCity,
           routeDeparture: route.departure,
           routePostType: route.postType,
         }),
@@ -2630,11 +2697,19 @@ function MatchingSection({
                     </span>
                   </div>
                   <p className="text-sm text-muted-foreground">{selectedInvitation.message}</p>
+                  <p className="text-sm text-foreground mt-2">
+                    {selectedInvitation.linkedPostType === 'shipment'
+                      ? t('You were invited for your post', 'Vous avez ete invite pour votre publication')
+                      : t('You were invited for your post', 'Vous avez ete invite pour votre publication')}
+                    {' '}<span className="font-semibold">{selectedInvitation.linkedPostId}</span>
+                    {' '}{t('from', 'depuis')}{' '}
+                    <span className="font-semibold">{inviterPost?.id || t('unknown post', 'publication inconnue')}</span>.
+                  </p>
                 </div>
 
                 {linkedShipment && (
                   <div className="rounded-xl border border-border bg-background p-4">
-                    <p className="text-sm font-semibold text-foreground mb-3">{t('Linked client post', 'Publication client liee')}</p>
+                    <p className="text-sm font-semibold text-foreground mb-3">{t('Your post (invited)', 'Votre publication (invitee)')}</p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                       <div className="rounded-lg bg-muted p-3 border border-border">
                         <p className="text-xs text-muted-foreground">{t('Post ID', 'ID publication')}</p>
@@ -2661,90 +2736,149 @@ function MatchingSection({
                         <p className="font-medium text-foreground mt-1">{linkedShipment.date}</p>
                       </div>
                     </div>
-
-                    <div className="mt-4 rounded-lg border border-border bg-muted/40 p-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                        <p className="text-xs font-semibold text-foreground">{t('Most relevant trucker posts', 'Publications transporteurs les plus pertinentes')}</p>
-                        <div className="flex items-center gap-1 rounded-md bg-muted p-1">
-                          <button
-                            onClick={() => setRelevantRouteFilter('all')}
-                            className={`px-2 py-1 rounded text-[10px] font-semibold transition-colors ${relevantRouteFilter === 'all' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-background/80'}`}
-                          >
-                            {t('All', 'Tous')}
-                          </button>
-                          <button
-                            onClick={() => setRelevantRouteFilter('live_truckers')}
-                            className={`px-2 py-1 rounded text-[10px] font-semibold transition-colors ${relevantRouteFilter === 'live_truckers' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-background/80'}`}
-                          >
-                            {t('Live truckers', 'Transporteurs en direct')}
-                          </button>
-                        </div>
-                      </div>
-
-                      {visibleLinkedShipmentRoutes.length > 0 ? (
-                        <div className="space-y-2">
-                          {visibleLinkedShipmentRoutes.map((route) => (
-                            <div key={route.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-background p-2.5 text-xs">
-                              <span className="text-foreground font-medium">{route.id} - {route.from} {t('to', 'vers')} {route.to}</span>
-                              <div className="flex items-center gap-2">
-                                <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary font-semibold">{route.relevanceScore}% match</span>
-                                <span className={`px-2 py-0.5 rounded-full font-semibold ${route.isLive ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-700'}`}>
-                                  {route.isLive ? t('Live', 'En ligne') : t('Offline', 'Hors ligne')}
-                                </span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">
-                          {relevantRouteFilter === 'live_truckers'
-                            ? t('No relevant live truckers found.', 'Aucun transporteur en direct pertinent trouve.')
-                            : t('No relevant trucker posts found.', 'Aucune publication de transporteur pertinente trouvee.')}
-                        </p>
-                      )}
-                    </div>
                   </div>
                 )}
 
                 {linkedRoute && (
-                  <div className="rounded-xl border border-border bg-background p-4">
-                    <p className="text-sm font-semibold text-foreground mb-3">{t('Linked trucker post', 'Publication transporteur liee')}</p>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                      <div className="rounded-lg bg-muted p-3 border border-border">
-                        <p className="text-xs text-muted-foreground">{t('Post ID', 'ID publication')}</p>
-                        <p className="font-medium text-foreground mt-1">{linkedRoute.id}</p>
+                  isAcceptedAvailabilityOnlyRecipient ? (
+                    <div className="rounded-xl border border-border bg-background p-4">
+                      <p className="text-sm font-semibold text-foreground mb-3">{t('Your post (invited)', 'Votre publication (invitee)')}</p>
+                      <div className="flex flex-wrap items-center gap-2 text-sm">
+                        <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">{linkedRoute.id}</span>
+                        <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">{t('Availability only', 'Disponibilite seulement')}</span>
+                        <span className="text-muted-foreground">{t('City', 'Ville')}: <span className="text-foreground font-medium">{linkedRoute.availableCity || linkedRoute.from || t('N/A', 'N/A')}</span></span>
                       </div>
-                      <div className="rounded-lg bg-muted p-3 border border-border">
-                        <p className="text-xs text-muted-foreground">{t('Post type', 'Type de publication')}</p>
-                        <p className="font-medium text-foreground mt-1">{linkedRoute.postType === 'availability_only' ? t('Availability only', 'Disponibilite seulement') : t('Full route', 'Trajet complet')}</p>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-border bg-background p-4">
+                      <p className="text-sm font-semibold text-foreground mb-3">{t('Your post (invited)', 'Votre publication (invitee)')}</p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                        <div className="rounded-lg bg-muted p-3 border border-border">
+                          <p className="text-xs text-muted-foreground">{t('Post ID', 'ID publication')}</p>
+                          <p className="font-medium text-foreground mt-1">{linkedRoute.id}</p>
+                        </div>
+                        <div className="rounded-lg bg-muted p-3 border border-border">
+                          <p className="text-xs text-muted-foreground">{t('Post type', 'Type de publication')}</p>
+                          <p className="font-medium text-foreground mt-1">{linkedRoute.postType === 'availability_only' ? t('Availability only', 'Disponibilite seulement') : t('Full route', 'Trajet complet')}</p>
+                        </div>
+                        {linkedRoute.postType === 'availability_only' ? (
+                          <div className="rounded-lg bg-primary/10 p-3 border border-primary/20 md:col-span-2">
+                            <p className="text-xs text-primary font-semibold">{t('Available city', 'Ville disponible')}</p>
+                            <p className="font-medium text-foreground mt-1">{linkedRoute.availableCity || linkedRoute.from || t('N/A', 'N/A')}</p>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="rounded-lg bg-muted p-3 border border-border">
+                              <p className="text-xs text-muted-foreground">Departure city</p>
+                              <p className="font-medium text-foreground mt-1">{linkedRoute.from}</p>
+                            </div>
+                            <div className="rounded-lg bg-muted p-3 border border-border">
+                              <p className="text-xs text-muted-foreground">Destination city</p>
+                              <p className="font-medium text-foreground mt-1">{linkedRoute.to}</p>
+                            </div>
+                          </>
+                        )}
+                        <div className="rounded-lg bg-muted p-3 border border-border">
+                          <p className="text-xs text-muted-foreground">{t('Capacity', 'Capacite')}</p>
+                          <p className="font-medium text-foreground mt-1">{formatWeightKg(linkedRoute.capacity)}</p>
+                        </div>
+                        <div className="rounded-lg bg-muted p-3 border border-border">
+                          <p className="text-xs text-muted-foreground">{t('Available', 'Disponible')}</p>
+                          <p className="font-medium text-foreground mt-1">{formatWeightKg(linkedRoute.available)}</p>
+                        </div>
+                        <div className="rounded-lg bg-muted p-3 border border-border">
+                          <p className="text-xs text-muted-foreground">{t('Driver', 'Conducteur')}</p>
+                          <p className="font-medium text-foreground mt-1">{linkedRoute.driverName || t('Unknown driver', 'Conducteur inconnu')}</p>
+                        </div>
                       </div>
-                      <div className="rounded-lg bg-muted p-3 border border-border">
-                        <p className="text-xs text-muted-foreground">Departure city</p>
-                        <p className="font-medium text-foreground mt-1">{linkedRoute.from}</p>
+                    </div>
+                  )
+                )}
+
+                {selectedInvitation?.linkedPostType === 'shipment' && senderRoute && (
+                  <div className="rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-lg shadow-slate-900/20">
+                    <p className="text-sm font-semibold text-white mb-3">{t('Inviter source post (trucker)', 'Publication source de l invitant (transporteur)')}</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 text-sm">
+                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
+                        <p className="text-xs text-slate-400">{t('Post ID', 'ID publication')}</p>
+                        <p className="font-medium text-white mt-1">{senderRoute.id}</p>
                       </div>
-                      <div className="rounded-lg bg-muted p-3 border border-border">
-                        <p className="text-xs text-muted-foreground">Destination city</p>
-                        <p className="font-medium text-foreground mt-1">{linkedRoute.to}</p>
+                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
+                        <p className="text-xs text-slate-400">{t('Post type', 'Type de publication')}</p>
+                        <p className="font-medium text-white mt-1">{senderRoute.postType === 'availability_only' ? t('Availability only', 'Disponibilite seulement') : t('Full route', 'Trajet complet')}</p>
                       </div>
-                      <div className="rounded-lg bg-muted p-3 border border-border">
-                        <p className="text-xs text-muted-foreground">{t('Capacity', 'Capacite')}</p>
-                        <p className="font-medium text-foreground mt-1">{formatWeightKg(linkedRoute.capacity)}</p>
+                      {senderRoute.postType === 'availability_only' ? (
+                        <div className="rounded-lg bg-slate-800 p-3 border border-slate-700 md:col-span-2 xl:col-span-2">
+                          <p className="text-xs text-sky-300 font-semibold">{t('Available city', 'Ville disponible')}</p>
+                          <p className="font-medium text-white mt-1">{senderRoute.availableCity || senderRoute.from || t('N/A', 'N/A')}</p>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
+                            <p className="text-xs text-slate-400">Departure city</p>
+                            <p className="font-medium text-white mt-1">{senderRoute.from}</p>
+                          </div>
+                          <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
+                            <p className="text-xs text-slate-400">Destination city</p>
+                            <p className="font-medium text-white mt-1">{senderRoute.to}</p>
+                          </div>
+                        </>
+                      )}
+                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
+                        <p className="text-xs text-slate-400">{t('Capacity', 'Capacite')}</p>
+                        <p className="font-medium text-white mt-1">{formatWeightKg(senderRoute.capacity)}</p>
                       </div>
-                      <div className="rounded-lg bg-muted p-3 border border-border">
-                        <p className="text-xs text-muted-foreground">{t('Available', 'Disponible')}</p>
-                        <p className="font-medium text-foreground mt-1">{formatWeightKg(linkedRoute.available)}</p>
+                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
+                        <p className="text-xs text-slate-400">{t('Available', 'Disponible')}</p>
+                        <p className="font-medium text-white mt-1">{formatWeightKg(senderRoute.available)}</p>
                       </div>
-                      <div className="rounded-lg bg-muted p-3 border border-border">
-                        <p className="text-xs text-muted-foreground">{t('Driver', 'Conducteur')}</p>
-                        <p className="font-medium text-foreground mt-1">{linkedRoute.driverName || t('Unknown driver', 'Conducteur inconnu')}</p>
+                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
+                        <p className="text-xs text-slate-400">{t('Date', 'Date')}</p>
+                        <p className="font-medium text-white mt-1">{senderRoute.departure || t('N/A', 'N/A')}</p>
                       </div>
-                      <div className="rounded-lg bg-muted p-3 border border-border">
-                        <p className="text-xs text-muted-foreground">{t('Live status', 'Statut en direct')}</p>
-                        <p className="font-medium text-foreground mt-1">{linkedRoute.isLive ? t('Live', 'En ligne') : t('Offline', 'Hors ligne')}</p>
+                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
+                        <p className="text-xs text-slate-400">{t('Driver', 'Conducteur')}</p>
+                        <p className="font-medium text-white mt-1">{senderRoute.driverName || t('Unknown driver', 'Conducteur inconnu')}</p>
                       </div>
-                      <div className="rounded-lg bg-muted p-3 border border-border">
-                        <p className="text-xs text-muted-foreground">{t('Current stop', 'Arret actuel')}</p>
-                        <p className="font-medium text-foreground mt-1">{linkedRoute.currentStop || t('N/A', 'N/A')}</p>
+                    </div>
+                  </div>
+                )}
+
+                {selectedInvitation?.linkedPostType === 'route' && senderShipment && (
+                  <div className="rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-lg shadow-slate-900/20">
+                    <p className="text-sm font-semibold text-white mb-3">{t('Inviter source post (client)', 'Publication source de l invitant (client)')}</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 text-sm">
+                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
+                        <p className="text-xs text-slate-400">{t('Post ID', 'ID publication')}</p>
+                        <p className="font-medium text-white mt-1">{senderShipment.id}</p>
+                      </div>
+                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
+                        <p className="text-xs text-slate-400">{t('Product', 'Produit')}</p>
+                        <p className="font-medium text-white mt-1">{senderShipment.itemName || 'N/A'}</p>
+                      </div>
+                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
+                        <p className="text-xs text-slate-400">Departure city</p>
+                        <p className="font-medium text-white mt-1">{senderShipment.origin}</p>
+                      </div>
+                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
+                        <p className="text-xs text-slate-400">Destination city</p>
+                        <p className="font-medium text-white mt-1">{senderShipment.destination}</p>
+                      </div>
+                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
+                        <p className="text-xs text-slate-400">{t('Weight', 'Poids')}</p>
+                        <p className="font-medium text-white mt-1">{formatWeightKg(senderShipment.weight)}</p>
+                      </div>
+                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
+                        <p className="text-xs text-slate-400">{t('Volume', 'Volume')}</p>
+                        <p className="font-medium text-white mt-1">{formatVolumeM3(senderShipment.capacity)}</p>
+                      </div>
+                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
+                        <p className="text-xs text-slate-400">{t('Date', 'Date')}</p>
+                        <p className="font-medium text-white mt-1">{senderShipment.date || t('N/A', 'N/A')}</p>
+                      </div>
+                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700 md:col-span-2 xl:col-span-3">
+                        <p className="text-xs text-slate-400">{t('Description', 'Description')}</p>
+                        <p className="font-medium text-white mt-1">{senderShipment.description || t('N/A', 'N/A')}</p>
                       </div>
                     </div>
                   </div>
@@ -4203,13 +4337,183 @@ function toNormalizedString(value) {
   return String(value || '').trim().toLowerCase()
 }
 
-function parseWeightToKg(weightValue) {
-  if (!weightValue) return null
-  const raw = String(weightValue).replace(/,/g, '').trim().toLowerCase()
-  const numeric = parseFloat(raw)
-  if (Number.isNaN(numeric)) return null
-  if (raw.includes('kg')) return numeric
-  return numeric
+const ROUTE_PLACEHOLDER_VALUES = new Set(['', 'n/a', 'na', 'not specified', 'unknown', 'flexible'])
+
+function normalizeRouteText(value) {
+  return toNormalizedString(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function isMeaningfulRouteValue(value) {
+  const normalized = normalizeRouteText(value)
+  return Boolean(normalized) && !ROUTE_PLACEHOLDER_VALUES.has(normalized)
+}
+
+function getDateKey(value) {
+  if (!value) return ''
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return ''
+  return parsed.toISOString().slice(0, 10)
+}
+
+function getRouteWaypoints(routeFrom, routeVia, routeTo) {
+  const waypoints = [routeFrom, routeVia, routeTo]
+    .map((value) => String(value || '').trim())
+    .filter(isMeaningfulRouteValue)
+
+  return waypoints.filter((value, index) => (
+    waypoints.findIndex((candidate) => normalizeWilayaName(candidate) === normalizeWilayaName(value)) === index
+  ))
+}
+
+const WILAYA_COORDS = [
+  { name: 'Adrar', lat: 27.8743, lon: -0.2939 },
+  { name: 'Chlef', lat: 36.1653, lon: 1.3345 },
+  { name: 'Laghouat', lat: 33.8, lon: 2.88 },
+  { name: 'Oum El Bouaghi', lat: 35.8722, lon: 7.1135 },
+  { name: 'Batna', lat: 35.5559, lon: 6.1741 },
+  { name: 'Bejaia', lat: 36.75, lon: 5.07 },
+  { name: 'Biskra', lat: 34.85, lon: 5.73 },
+  { name: 'Bechar', lat: 31.62, lon: -2.22 },
+  { name: 'Blida', lat: 36.47, lon: 2.83 },
+  { name: 'Bouira', lat: 36.38, lon: 3.9 },
+  { name: 'Tamanrasset', lat: 22.79, lon: 5.52 },
+  { name: 'Tebessa', lat: 35.4042, lon: 8.1242 },
+  { name: 'Tlemcen', lat: 34.8783, lon: -1.315 },
+  { name: 'Tiaret', lat: 35.37, lon: 1.32 },
+  { name: 'Tizi Ouzou', lat: 36.71, lon: 4.05 },
+  { name: 'Alger', lat: 36.7538, lon: 3.0588 },
+  { name: 'Djelfa', lat: 34.67, lon: 3.26 },
+  { name: 'Jijel', lat: 36.82, lon: 5.77 },
+  { name: 'Setif', lat: 36.1911, lon: 5.4137 },
+  { name: 'Saida', lat: 34.83, lon: 0.15 },
+  { name: 'Skikda', lat: 36.87, lon: 6.91 },
+  { name: 'Sidi Bel Abbes', lat: 35.19, lon: -0.63 },
+  { name: 'Annaba', lat: 36.9, lon: 7.76 },
+  { name: 'Guelma', lat: 36.46, lon: 7.43 },
+  { name: 'Constantine', lat: 36.365, lon: 6.6147 },
+  { name: 'Medea', lat: 36.26, lon: 2.75 },
+  { name: 'Mostaganem', lat: 35.94, lon: 0.09 },
+  { name: 'M Sila', lat: 35.71, lon: 4.54 },
+  { name: 'Mascara', lat: 35.4, lon: 0.14 },
+  { name: 'Ouargla', lat: 31.95, lon: 5.32 },
+  { name: 'Oran', lat: 35.6971, lon: -0.6308 },
+  { name: 'El Bayadh', lat: 33.68, lon: 1.02 },
+  { name: 'Illizi', lat: 26.5, lon: 8.47 },
+  { name: 'Bordj Bou Arreridj', lat: 36.0732, lon: 4.7611 },
+  { name: 'Boumerdes', lat: 36.76, lon: 3.47 },
+  { name: 'El Tarf', lat: 36.7672, lon: 8.3138 },
+  { name: 'Tindouf', lat: 27.67, lon: -8.15 },
+  { name: 'Tissemsilt', lat: 35.61, lon: 1.81 },
+  { name: 'El Oued', lat: 33.3678, lon: 6.8515 },
+  { name: 'Khenchela', lat: 35.43, lon: 7.14 },
+  { name: 'Souk Ahras', lat: 36.2864, lon: 7.9511 },
+  { name: 'Tipaza', lat: 36.59, lon: 2.45 },
+  { name: 'Mila', lat: 36.45, lon: 6.26 },
+  { name: 'Ain Defla', lat: 36.264, lon: 1.9679 },
+  { name: 'Naama', lat: 33.2667, lon: -0.3167 },
+  { name: 'Ain Temouchent', lat: 35.3, lon: -1.14 },
+  { name: 'Ghardaia', lat: 32.49, lon: 3.67 },
+  { name: 'Relizane', lat: 35.74, lon: 0.55 },
+  { name: 'Timimoun', lat: 29.26, lon: 0.23 },
+  { name: 'Bordj Badji Mokhtar', lat: 21.33, lon: 0.95 },
+  { name: 'Ouled Djellal', lat: 34.42, lon: 5.06 },
+  { name: 'Beni Abbes', lat: 30.13, lon: -2.17 },
+  { name: 'In Salah', lat: 27.2, lon: 2.47 },
+  { name: 'In Guezzam', lat: 19.57, lon: 5.77 },
+  { name: 'Touggourt', lat: 33.1, lon: 6.07 },
+  { name: 'Djanet', lat: 24.55, lon: 9.48 },
+  { name: 'El Mghair', lat: 33.95, lon: 5.92 },
+  { name: 'El Meniaa', lat: 30.57, lon: 2.88 },
+]
+
+const WILAYA_ALIASES = {
+  algeria: 'alger',
+  algiers: 'alger',
+  "m'sila": 'm sila',
+  msila: 'm sila',
+  "el m'ghair": 'el mghair',
+}
+
+function normalizeWilayaName(value) {
+  const normalized = normalizeRouteText(value)
+  return WILAYA_ALIASES[normalized] || normalized
+}
+
+const WILAYA_COORDS_BY_NAME = WILAYA_COORDS.reduce((acc, wilaya) => {
+  acc[normalizeWilayaName(wilaya.name)] = { lat: wilaya.lat, lon: wilaya.lon }
+  return acc
+}, {})
+
+function getWilayaPoint(name) {
+  const normalized = normalizeWilayaName(name)
+  if (!normalized) return null
+  if (WILAYA_COORDS_BY_NAME[normalized]) return WILAYA_COORDS_BY_NAME[normalized]
+
+  const partialMatchKey = Object.keys(WILAYA_COORDS_BY_NAME).find((key) => (
+    key.includes(normalized) || normalized.includes(key)
+  ))
+
+  return partialMatchKey ? WILAYA_COORDS_BY_NAME[partialMatchKey] : null
+}
+
+function toRad(value) {
+  return (value * Math.PI) / 180
+}
+
+function haversineDistanceKm(a, b) {
+  const earthRadiusKm = 6371
+  const dLat = toRad(b.lat - a.lat)
+  const dLon = toRad(b.lon - a.lon)
+  const lat1 = toRad(a.lat)
+  const lat2 = toRad(b.lat)
+
+  const sinLat = Math.sin(dLat / 2)
+  const sinLon = Math.sin(dLon / 2)
+  const value = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLon * sinLon
+  return earthRadiusKm * (2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value)))
+}
+
+function projectToLocalKm(point, referenceLat) {
+  const kmPerLat = 111.32
+  const kmPerLon = 111.32 * Math.cos(toRad(referenceLat))
+  return {
+    x: point.lon * kmPerLon,
+    y: point.lat * kmPerLat,
+  }
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value))
+}
+
+function getSegmentProjectionFactor(point, segmentStart, segmentEnd) {
+  const referenceLat = (segmentStart.lat + segmentEnd.lat) / 2
+  const p = projectToLocalKm(point, referenceLat)
+  const a = projectToLocalKm(segmentStart, referenceLat)
+  const b = projectToLocalKm(segmentEnd, referenceLat)
+
+  const abx = b.x - a.x
+  const aby = b.y - a.y
+  const abLengthSquared = abx * abx + aby * aby
+  if (abLengthSquared <= 0) return 0
+
+  const apx = p.x - a.x
+  const apy = p.y - a.y
+  return clamp((apx * abx + apy * aby) / abLengthSquared, 0, 1)
+}
+
+function getDistancePointToSegmentKm(point, segmentStart, segmentEnd) {
+  const t = getSegmentProjectionFactor(point, segmentStart, segmentEnd)
+  const projected = {
+    lat: segmentStart.lat + (segmentEnd.lat - segmentStart.lat) * t,
+    lon: segmentStart.lon + (segmentEnd.lon - segmentStart.lon) * t,
+  }
+  return haversineDistanceKm(point, projected)
 }
 
 function parseDateSafe(dateValue) {
@@ -4232,44 +4536,105 @@ function computeWeightedRouteRelevance({
   routeFrom,
   routeTo,
   routeAvailable,
+  routeAvailableCity,
   routeDeparture,
   routePostType,
 }) {
-  const normalizedShipmentOrigin = toNormalizedString(shipmentOrigin)
-  const normalizedShipmentDestination = toNormalizedString(shipmentDestination)
-  const normalizedRouteFrom = toNormalizedString(routeFrom)
-  const normalizedRouteTo = toNormalizedString(routeTo)
+  const normalizedShipmentOrigin = normalizeWilayaName(shipmentOrigin)
+  const normalizedShipmentDestination = normalizeWilayaName(shipmentDestination)
+  const normalizedRouteFrom = normalizeWilayaName(routeFrom)
+  const normalizedRouteTo = normalizeWilayaName(routeTo)
+  const normalizedRouteVia = normalizeWilayaName(routeAvailableCity)
 
   const originMatch = normalizedShipmentOrigin && normalizedShipmentOrigin === normalizedRouteFrom
   const destinationMatch = normalizedShipmentDestination && normalizedShipmentDestination === normalizedRouteTo
+  const reverseRouteMatch = (
+    normalizedShipmentOrigin
+    && normalizedShipmentDestination
+    && normalizedShipmentOrigin === normalizedRouteTo
+    && normalizedShipmentDestination === normalizedRouteFrom
+  )
   const routeIsAvailabilityOnly = routePostType === 'availability_only'
 
   let routeScore = 0
-  if (originMatch && destinationMatch) routeScore = 60
-  else if (originMatch || destinationMatch) routeScore = 32
-  else if (routeIsAvailabilityOnly) routeScore = 22
+  if (originMatch && destinationMatch) routeScore += 18
+  else if (reverseRouteMatch) routeScore += 6
+  else if (originMatch || destinationMatch) routeScore += 10
+  else if (routeIsAvailabilityOnly) routeScore += 3
 
-  const shipmentKg = parseWeightToKg(shipmentWeight)
-  const routeAvailableKg = parseFloat(routeAvailable)
-  let capacityScore = 8
-  if (shipmentKg !== null && !Number.isNaN(routeAvailableKg)) {
-    if (routeAvailableKg >= shipmentKg) capacityScore = 25
-    else if (routeAvailableKg >= shipmentKg * 0.8) capacityScore = 12
-    else capacityScore = 3
+  const shipmentOriginPoint = getWilayaPoint(shipmentOrigin)
+  const shipmentDestinationPoint = getWilayaPoint(shipmentDestination)
+  const routeFromPoint = getWilayaPoint(routeFrom)
+  const routeToPoint = getWilayaPoint(routeTo)
+  const routeWaypoints = getRouteWaypoints(routeFrom, routeAvailableCity, routeTo)
+
+  const shipmentDateKey = getDateKey(shipmentDate)
+  const routeDateKey = getDateKey(routeDeparture)
+
+  let dateScore = 4
+  if (shipmentDateKey && routeDateKey) {
+    if (shipmentDateKey === routeDateKey) dateScore = 45
+    else {
+      const shipmentParsedDate = parseDateSafe(shipmentDate)
+      const routeParsedDate = parseDateSafe(routeDeparture)
+      const dayDiff = getAbsoluteDayDiff(shipmentParsedDate, routeParsedDate)
+      if (dayDiff !== null) {
+        if (dayDiff <= 1) dateScore = 30
+        else if (dayDiff <= 3) dateScore = 20
+        else if (dayDiff <= 7) dateScore = 12
+        else dateScore = 4
+      }
+    }
+  } else if (shipmentDateKey || routeDateKey) {
+    dateScore = 8
   }
 
-  const shipmentParsedDate = parseDateSafe(shipmentDate)
-  const routeParsedDate = parseDateSafe(routeDeparture)
-  const dayDiff = getAbsoluteDayDiff(shipmentParsedDate, routeParsedDate)
-  let dateScore = 5
-  if (dayDiff !== null) {
-    if (dayDiff <= 1) dateScore = 15
-    else if (dayDiff <= 3) dateScore = 10
-    else if (dayDiff <= 7) dateScore = 6
-    else dateScore = 2
+  const shipmentKg = parseNumericInput(shipmentWeight)
+  const routeAvailableKg = parseNumericInput(routeAvailable)
+  let capacityScore = 0
+  if (Number.isFinite(shipmentKg) && Number.isFinite(routeAvailableKg)) {
+    const capacityGap = Math.max(shipmentKg - routeAvailableKg, 0)
+    capacityScore = clamp(20 - ((capacityGap / Math.max(shipmentKg, 1)) * 20), 0, 20)
+  } else if (Number.isFinite(routeAvailableKg)) {
+    capacityScore = 8
   }
 
-  return Math.min(100, Math.max(0, Math.round(routeScore + capacityScore + dateScore)))
+  let routeShapeScore = 0
+  if (routeWaypoints.length >= 2) {
+    const normalizedWaypoints = routeWaypoints.map((value) => normalizeWilayaName(value))
+    const originIndex = normalizedWaypoints.indexOf(normalizedShipmentOrigin)
+    const destinationIndex = normalizedWaypoints.indexOf(normalizedShipmentDestination)
+
+    if (originIndex !== -1 && destinationIndex !== -1 && originIndex < destinationIndex) {
+      routeShapeScore += 12
+    }
+
+    if (normalizedWaypoints.includes(normalizedShipmentOrigin)) routeShapeScore += 5
+    if (normalizedWaypoints.includes(normalizedShipmentDestination)) routeShapeScore += 5
+    if (normalizedWaypoints.includes(normalizedRouteVia) && normalizedRouteVia) routeShapeScore += 3
+  }
+
+  let corridorScore = 0
+  let directionScore = 0
+
+  if (shipmentOriginPoint && shipmentDestinationPoint && routeFromPoint && routeToPoint) {
+    const distanceOriginToRoute = getDistancePointToSegmentKm(shipmentOriginPoint, routeFromPoint, routeToPoint)
+    const distanceDestinationToRoute = getDistancePointToSegmentKm(shipmentDestinationPoint, routeFromPoint, routeToPoint)
+    const averageCorridorDistance = (distanceOriginToRoute + distanceDestinationToRoute) / 2
+
+    corridorScore = clamp(15 - averageCorridorDistance * 0.25, 0, 15)
+
+    const startDistance = haversineDistanceKm(shipmentOriginPoint, routeFromPoint)
+    const endDistance = haversineDistanceKm(shipmentDestinationPoint, routeToPoint)
+    routeShapeScore += clamp(10 - (startDistance + endDistance) * 0.05, 0, 10)
+
+    const originProgress = getSegmentProjectionFactor(shipmentOriginPoint, routeFromPoint, routeToPoint)
+    const destinationProgress = getSegmentProjectionFactor(shipmentDestinationPoint, routeFromPoint, routeToPoint)
+    directionScore = originProgress <= destinationProgress ? 5 : 1
+  }
+
+  const totalScore = dateScore + capacityScore + routeScore + routeShapeScore + corridorScore + directionScore
+  return Math.min(100, Math.max(0, Math.round(totalScore)))
 }
 
 // Shipment Card Component
@@ -4330,6 +4695,7 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
         routeFrom: route.from,
         routeTo: route.to,
         routeAvailable: route.available,
+        routeAvailableCity: route.availableCity,
         routeDeparture: route.departure,
         routePostType: route.postType,
       })
@@ -4341,6 +4707,12 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
   const liveRelevantRoutePosts = scoredRelevantRoutePosts
     .filter(route => route.isLive)
   const visibleRelevantRoutePosts = relevantRouteFilter === 'live_truckers' ? liveRelevantRoutePosts : relevantRoutePosts
+
+  const handleDeleteClick = (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    onDelete?.()
+  }
 
   return (
     <div className="p-4 bg-muted hover:bg-muted/80 rounded-lg border border-border hover:border-primary/30 transition-all cursor-pointer group">
@@ -4367,7 +4739,8 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
           )}
           {!isReadOnly && onDelete && (
             <button
-              onClick={onDelete}
+              type="button"
+              onClick={handleDeleteClick}
               className="p-1 hover:bg-red-100 dark:hover:bg-red-950/30 rounded transition-colors text-muted-foreground hover:text-red-600"
             >
               <Trash2 className="w-4 h-4" />
@@ -4435,8 +4808,7 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
               <div className="space-y-2">
                 {visibleRelevantRoutePosts.map(route => (
                   <div key={route.id} className="flex items-center justify-between text-xs">
-                    <span className="text-foreground">{route.id} - {route.from} {t('to', 'vers')} {route.to} {route.isLive ? `(${t('Live', 'En ligne')})` : ''}</span>
-                    <span className="text-muted-foreground">{route.relevanceScore}% {t('match', 'match')}</span>
+                    <span className="text-foreground">{route.id} - {route.from} {t('to', 'vers')} {route.to}</span>
                   </div>
                 ))}
               </div>
@@ -4478,7 +4850,7 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
 }
 
 // Route Card Component
-function RouteCard({ uiLanguage, id, from, to, capacity, available, stops, departure, postType = 'full_route', isLive = false, driverName = 'Unknown driver', currentStop = '', lastSeen = 'Offline', ownerName = '', ownershipTag = '', shipmentItems, onDelete, onContact, contactLabel = 'Send Invitation', contactSent = false, contactDisabled = false, onContactRelevantShipment, isRelevantShipmentInvitationSent, onToggleDetails, showDetails, showNestedRelevant = true }) {
+function RouteCard({ uiLanguage, id, from, to, capacity, available, stops, departure, postType = 'full_route', availableCity = '', isLive = false, driverName = 'Unknown driver', currentStop = '', lastSeen = 'Offline', ownerName = '', ownershipTag = '', shipmentItems, onDelete, onContact, contactLabel = 'Send Invitation', contactSent = false, contactDisabled = false, onContactRelevantShipment, isRelevantShipmentInvitationSent, onToggleDetails, showDetails, showNestedRelevant = true }) {
   const t = (en, fr, ar = en) => tr(uiLanguage, en, fr, ar)
   const capacityNum = parseFloat(capacity)
   const availableNum = parseFloat(available)
@@ -4494,12 +4866,19 @@ function RouteCard({ uiLanguage, id, from, to, capacity, available, stops, depar
         routeFrom: from,
         routeTo: to,
         routeAvailable: available,
+        routeAvailableCity: availableCity,
         routeDeparture: departure,
         routePostType: postType,
       })
       return { ...shipment, relevanceScore: score }
     })
     .sort((a, b) => b.relevanceScore - a.relevanceScore)
+
+  const handleDeleteClick = (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    onDelete?.()
+  }
 
   return (
     <div className="p-4 bg-muted hover:bg-muted/80 rounded-lg border border-border hover:border-primary/30 transition-all group">
@@ -4518,12 +4897,10 @@ function RouteCard({ uiLanguage, id, from, to, capacity, available, stops, depar
           <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${isAvailabilityOnly ? 'bg-blue-50 text-blue-700' : 'bg-emerald-50 text-emerald-700'}`}>
             {isAvailabilityOnly ? t('Availability only', 'Disponibilite seulement') : t('Full route', 'Trajet complet')}
           </span>
-          <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${isLive ? 'bg-green-50 text-green-700' : 'bg-slate-100 text-slate-700'}`}>
-            {isLive ? t('Live', 'En ligne') : t('Offline', 'Hors ligne')}
-          </span>
           {onDelete && (
             <button
-              onClick={onDelete}
+              type="button"
+              onClick={handleDeleteClick}
               className="p-1 hover:bg-red-100 dark:hover:bg-red-950/30 rounded transition-colors text-muted-foreground hover:text-red-600"
             >
               <Trash2 className="w-4 h-4" />
@@ -4534,21 +4911,18 @@ function RouteCard({ uiLanguage, id, from, to, capacity, available, stops, depar
       <div className="flex items-center justify-between text-sm mb-3">
         <div className="flex items-center gap-2 text-muted-foreground">
           <MapPin className="w-4 h-4" />
-          <span>{from} → {to}</span>
+          <span>
+            {isAvailabilityOnly
+              ? `${t('Available on', 'Disponible sur')}: ${availableCity || from || t('N/A', 'N/A')}`
+              : `${from} → ${to}`}
+          </span>
         </div>
-          <span className="text-xs text-muted-foreground flex items-center gap-1">
-          <Clock className="w-3 h-3" />
-          {isAvailabilityOnly ? t('Route not specified', 'Trajet non specifie') : `${stops} ${t('stops', 'arrets')}`}
-        </span>
       </div>
       <div className="space-y-2 mb-3">
         <div className="flex items-center justify-between text-xs">
           <span className="text-muted-foreground">{t('Driver', 'Conducteur')}: {driverName}</span>
           <span className="text-muted-foreground">{lastSeen}</span>
         </div>
-        {isLive && currentStop && (
-          <p className="text-xs text-muted-foreground">{t('Current stop', 'Arret actuel')}: <span className="text-foreground">{currentStop}</span></p>
-        )}
         <div className="flex items-center justify-between text-xs">
           <span className="text-muted-foreground">{t('Capacity', 'Capacite')}: {formatWeightKg(capacity)}</span>
           <span className="text-foreground font-medium">{formatWeightKg(available)} {t('available', 'disponible')}</span>
@@ -4578,15 +4952,10 @@ function RouteCard({ uiLanguage, id, from, to, capacity, available, stops, depar
         <div className="mt-4 pt-4 border-t border-border space-y-3 animate-in fade-in">
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground">{t('Post Type', 'Type de publication')}: <span className="text-foreground">{isAvailabilityOnly ? t('Availability only', 'Disponibilite seulement') : t('Full route', 'Trajet complet')}</span></p>
-            <p className="text-xs text-muted-foreground">{t('Route', 'Trajet')}: <span className="text-foreground">{from} {t('to', 'vers')} {to}</span></p>
+            <p className="text-xs text-muted-foreground">{t('Route', 'Trajet')}: <span className="text-foreground">{isAvailabilityOnly ? `${t('Available on', 'Disponible sur')} ${availableCity || from || t('N/A', 'N/A')}` : `${from} ${t('to', 'vers')} ${to}`}</span></p>
             <p className="text-xs text-muted-foreground">{t('Capacity', 'Capacite')}: <span className="text-foreground">{formatWeightKg(capacity)}</span></p>
             <p className="text-xs text-muted-foreground">{t('Available', 'Disponible')}: <span className="text-foreground">{formatWeightKg(available)}</span></p>
             <p className="text-xs text-muted-foreground">{t('Driver', 'Conducteur')}: <span className="text-foreground">{driverName}</span></p>
-            <p className="text-xs text-muted-foreground">{t('Live status', 'Statut en direct')}: <span className="text-foreground">{isLive ? t('Live', 'En ligne') : t('Offline', 'Hors ligne')}</span></p>
-            {isLive && currentStop && (
-              <p className="text-xs text-muted-foreground">{t('Current stop', 'Arret actuel')}: <span className="text-foreground">{currentStop}</span></p>
-            )}
-            <p className="text-xs text-muted-foreground">{t('Stops', 'Arrets')}: <span className="text-foreground">{isAvailabilityOnly ? t('Not specified', 'Non specifie') : stops}</span></p>
             <p className="text-xs text-muted-foreground">{t('Departure', 'Depart')}: <span className="text-foreground">{departure}</span></p>
           </div>
 
@@ -4599,7 +4968,6 @@ function RouteCard({ uiLanguage, id, from, to, capacity, available, stops, depar
                     <div key={shipment.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-foreground">{shipment.id} - {shipment.origin} {t('to', 'vers')} {shipment.destination}</span>
-                        <span className="text-muted-foreground">{shipment.relevanceScore}% {t('match', 'match')}</span>
                       </div>
                       {onContactRelevantShipment && (
                         <button
@@ -4625,13 +4993,7 @@ function RouteCard({ uiLanguage, id, from, to, capacity, available, stops, depar
 }
 
 function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, currentUserKey, onClose, advanceShipmentStatus, deleteShipment, deleteRoute, onUpdateShipment, onUpdateRoute, contactShipper, isInvitationSent }) {
-  const t = (en, fr, ar = en) => tr(uiLanguage, en, fr, ar)
-  const [relevantRouteFilter, setRelevantRouteFilter] = useState('all')
-  const [isEditingShipment, setIsEditingShipment] = useState(false)
-  const [isEditingRoute, setIsEditingRoute] = useState(false)
-  const [isSavingEdit, setIsSavingEdit] = useState(false)
-  const [shipmentDraft, setShipmentDraft] = useState({ itemName: '', origin: '', destination: '', weight: '', capacity: '', quantity: '', date: '', category: 'general', description: '' })
-  const [routeDraft, setRouteDraft] = useState({ postType: 'full_route', from: '', to: '', capacity: '', stops: '', departure: '', availableCity: '' })
+  // Early returns must happen BEFORE any hooks
   if (!detailView?.type || !detailView?.id) return null
 
   const selectedShipment = detailView.type === 'shipment'
@@ -4642,6 +5004,17 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
     : null
 
   if (!selectedShipment && !selectedRoute) return null
+
+  // Now safe to call hooks
+  const t = (en, fr, ar = en) => tr(uiLanguage, en, fr, ar)
+  const [relevantRouteFilter, setRelevantRouteFilter] = useState('all')
+  const [isFullRouteSectionOpen, setIsFullRouteSectionOpen] = useState(true)
+  const [isAvailabilityOnlySectionOpen, setIsAvailabilityOnlySectionOpen] = useState(true)
+  const [isEditingShipment, setIsEditingShipment] = useState(false)
+  const [isEditingRoute, setIsEditingRoute] = useState(false)
+  const [isSavingEdit, setIsSavingEdit] = useState(false)
+  const [shipmentDraft, setShipmentDraft] = useState({ itemName: '', origin: '', destination: '', weight: '', capacity: '', quantity: '', date: '', category: 'general', description: '' })
+  const [routeDraft, setRouteDraft] = useState({ postType: 'full_route', from: '', to: '', capacity: '', stops: '', departure: '', availableCity: '' })
 
   const selectedShipmentIsMine = selectedShipment
     ? getUserOwnerKey({ email: selectedShipment.ownerId }) === currentUserKey
@@ -4683,9 +5056,50 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
     })
   }, [selectedRoute?.id])
 
+  useEffect(() => {
+    if (!selectedShipment) return
+    setIsFullRouteSectionOpen(true)
+    setIsAvailabilityOnlySectionOpen(true)
+  }, [selectedShipment?.id])
+
   const shipmentRelevantRoutes = selectedShipment
     ? routeItems
+      .filter((route) => getUserOwnerKey({ email: route.ownerId, name: route.ownerName }) !== currentUserKey)
+      .filter((route) => {
+        if (route.postType === 'availability_only') {
+          const availabilityCity = route.availableCity || route.from
+          return isMeaningfulRouteValue(availabilityCity)
+        }
+
+        return (
+          isMeaningfulRouteValue(route.from)
+          && isMeaningfulRouteValue(route.to)
+          && normalizeWilayaName(route.from) !== normalizeWilayaName(route.to)
+        )
+      })
+      .filter((route) => {
+        const shipmentWeightValue = parseNumericInput(selectedShipment.weight)
+        const shipmentDateKey = getDateKey(selectedShipment.date)
+        const routeDateKey = getDateKey(route.departure)
+
+        if (!shipmentDateKey || !routeDateKey) return false
+        if (shipmentDateKey !== routeDateKey) return false
+
+        if (!Number.isFinite(shipmentWeightValue)) return false
+
+        const routeCapacityValue = parseNumericInput(route.available ?? route.capacity)
+        if (!Number.isFinite(routeCapacityValue)) return false
+
+        return routeCapacityValue >= shipmentWeightValue
+      })
       .map(route => ({
+        availabilityDistanceKm: (() => {
+          if (route.postType !== 'availability_only') return null
+          const originPoint = getWilayaPoint(selectedShipment.origin)
+          const availabilityPoint = getWilayaPoint(route.availableCity || route.from)
+          if (!originPoint || !availabilityPoint) return Number.MAX_SAFE_INTEGER
+          return haversineDistanceKm(originPoint, availabilityPoint)
+        })(),
         ...route,
         relevanceScore: computeWeightedRouteRelevance({
           shipmentOrigin: selectedShipment.origin,
@@ -4695,17 +5109,41 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
           routeFrom: route.from,
           routeTo: route.to,
           routeAvailable: route.available,
+          routeAvailableCity: route.availableCity,
           routeDeparture: route.departure,
           routePostType: route.postType,
         }),
       }))
-      .sort((a, b) => b.relevanceScore - a.relevanceScore)
+      .sort((a, b) => {
+        const aIsAvailabilityOnly = a.postType === 'availability_only'
+        const bIsAvailabilityOnly = b.postType === 'availability_only'
+
+        if (!aIsAvailabilityOnly && !bIsAvailabilityOnly) {
+          return b.relevanceScore - a.relevanceScore
+        }
+
+        if (aIsAvailabilityOnly && bIsAvailabilityOnly) {
+          const byDistance = (a.availabilityDistanceKm ?? Number.MAX_SAFE_INTEGER) - (b.availabilityDistanceKm ?? Number.MAX_SAFE_INTEGER)
+          if (byDistance !== 0) return byDistance
+          return b.relevanceScore - a.relevanceScore
+        }
+
+        return aIsAvailabilityOnly ? 1 : -1
+      })
     : []
 
   const visibleShipmentRelevantRoutes = selectedShipment
     ? (relevantRouteFilter === 'live_truckers'
       ? shipmentRelevantRoutes.filter(route => route.isLive)
       : shipmentRelevantRoutes)
+    : []
+
+  const visibleShipmentFullRoutes = selectedShipment
+    ? visibleShipmentRelevantRoutes.filter((route) => route.postType !== 'availability_only')
+    : []
+
+  const visibleShipmentAvailabilityOnlyRoutes = selectedShipment
+    ? visibleShipmentRelevantRoutes.filter((route) => route.postType === 'availability_only')
     : []
 
   const routeRelevantShipments = selectedRoute
@@ -4720,6 +5158,7 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
           routeFrom: selectedRoute.from,
           routeTo: selectedRoute.to,
           routeAvailable: selectedRoute.available,
+          routeAvailableCity: selectedRoute.availableCity,
           routeDeparture: selectedRoute.departure,
           routePostType: selectedRoute.postType,
         }),
@@ -4901,10 +5340,6 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
                 <p className="text-xs text-muted-foreground">{t('Available', 'Disponible')}</p>
                 <p className="text-sm font-semibold text-foreground mt-1">{formatWeightKg(selectedRoute.available)}</p>
               </div>
-              <div className="rounded-lg border border-border bg-muted p-3">
-                <p className="text-xs text-muted-foreground">{t('Stops', 'Arrets')}</p>
-                <p className="text-sm font-semibold text-foreground mt-1">{selectedRoute.postType === 'availability_only' ? t('Not specified', 'Non specifie') : selectedRoute.stops}</p>
-              </div>
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -4980,67 +5415,138 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
           )}
         </div>
         <div className="space-y-4">
-          {selectedShipment && visibleShipmentRelevantRoutes.length > 0 && visibleShipmentRelevantRoutes.map(route => (
-            <div key={route.id} className="rounded-xl border border-border bg-muted p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                <p className="text-base font-bold text-foreground">{route.id}</p>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs px-2.5 py-1 rounded-full bg-primary/10 text-primary font-semibold">{route.relevanceScore}% match</span>
-                  <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${route.postType === 'availability_only' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                    {route.postType === 'availability_only' ? t('Availability only', 'Disponibilite seulement') : t('Full route', 'Trajet complet')}
-                  </span>
-                  <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${route.isLive ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-700'}`}>
-                    {route.isLive ? t('Live', 'En ligne') : t('Offline', 'Hors ligne')}
-                  </span>
-                </div>
+          {selectedShipment && (
+            <div className="space-y-6">
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => setIsFullRouteSectionOpen((prev) => !prev)}
+                  className="w-full flex items-center justify-between rounded-lg border border-border bg-muted px-3 py-2 text-left"
+                >
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t('Full Route Posts', 'Publications trajet complet')}
+                  </h3>
+                  {isFullRouteSectionOpen ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+                </button>
+                {isFullRouteSectionOpen && (visibleShipmentFullRoutes.length > 0 ? visibleShipmentFullRoutes.map(route => (
+                  <div key={route.id} className="rounded-xl border border-border bg-muted p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                      <p className="text-base font-bold text-foreground">{route.id}</p>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs px-2.5 py-1 rounded-full font-semibold bg-emerald-100 text-emerald-700">
+                          {t('Full route', 'Trajet complet')}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 text-sm mb-4">
+                      <div className="rounded-lg border border-border bg-background p-3">
+                        <p className="text-xs text-muted-foreground">Departure city</p>
+                        <p className="font-semibold text-foreground mt-1">{route.from}</p>
+                      </div>
+                      <div className="rounded-lg border border-border bg-background p-3">
+                        <p className="text-xs text-muted-foreground">Destination city</p>
+                        <p className="font-semibold text-foreground mt-1">{route.to}</p>
+                      </div>
+                      <div className="rounded-lg border border-border bg-background p-3">
+                        <p className="text-xs text-muted-foreground">{t('Available', 'Disponible')}</p>
+                        <p className="font-semibold text-foreground mt-1">{formatWeightKg(route.available)}</p>
+                      </div>
+                      <div className="rounded-lg border border-border bg-background p-3">
+                        <p className="text-xs text-muted-foreground">Departure date</p>
+                        <p className="font-semibold text-foreground mt-1">{route.departure}</p>
+                      </div>
+                      <div className="rounded-lg border border-border bg-background p-3">
+                        <p className="text-xs text-muted-foreground">{t('Driver', 'Conducteur')}</p>
+                        <p className="font-semibold text-foreground mt-1">{route.driverName || t('Unknown driver', 'Conducteur inconnu')}</p>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => contactShipper(route, 'route', selectedShipment)}
+                      disabled={isInvitationSent?.('route', route.id, selectedShipment?.id || 'none')}
+                      className={`w-full px-4 py-2 rounded-lg transition-colors text-sm font-medium ${isInvitationSent?.('route', route.id, selectedShipment?.id || 'none') ? 'bg-green-600 text-white cursor-default' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
+                    >
+                      {isInvitationSent?.('route', route.id, selectedShipment?.id || 'none') ? t('Invitation Sent', 'Invitation envoyee') : t('Send Invitation', 'Envoyer une invitation')}
+                    </button>
+                  </div>
+                )) : (
+                  <p className="text-sm text-muted-foreground">
+                    {relevantRouteFilter === 'live_truckers'
+                      ? t('No relevant live full-route posts found.', 'Aucune publication trajet complet en direct pertinente trouvee.')
+                      : t('No relevant full-route posts found.', 'Aucune publication trajet complet pertinente trouvee.')}
+                  </p>
+                ))}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 text-sm mb-4">
-                <div className="rounded-lg border border-border bg-background p-3">
-                  <p className="text-xs text-muted-foreground">Departure city</p>
-                  <p className="font-semibold text-foreground mt-1">{route.from}</p>
-                </div>
-                <div className="rounded-lg border border-border bg-background p-3">
-                  <p className="text-xs text-muted-foreground">Destination city</p>
-                  <p className="font-semibold text-foreground mt-1">{route.to}</p>
-                </div>
-                <div className="rounded-lg border border-border bg-background p-3">
-                  <p className="text-xs text-muted-foreground">{t('Available', 'Disponible')}</p>
-                  <p className="font-semibold text-foreground mt-1">{formatWeightKg(route.available)}</p>
-                </div>
-                <div className="rounded-lg border border-border bg-background p-3">
-                  <p className="text-xs text-muted-foreground">Departure date</p>
-                  <p className="font-semibold text-foreground mt-1">{route.departure}</p>
-                </div>
-                <div className="rounded-lg border border-border bg-background p-3">
-                  <p className="text-xs text-muted-foreground">{t('Driver', 'Conducteur')}</p>
-                  <p className="font-semibold text-foreground mt-1">{route.driverName || t('Unknown driver', 'Conducteur inconnu')}</p>
-                </div>
-                <div className="rounded-lg border border-border bg-background p-3">
-                  <p className="text-xs text-muted-foreground">{t('Last seen', 'Derniere activite')}</p>
-                  <p className="font-semibold text-foreground mt-1">{route.lastSeen || t('Offline', 'Hors ligne')}</p>
-                </div>
-                <div className="rounded-lg border border-border bg-background p-3">
-                  <p className="text-xs text-muted-foreground">{t('Current stop', 'Arret actuel')}</p>
-                  <p className="font-semibold text-foreground mt-1">{route.currentStop || t('N/A', 'N/A')}</p>
-                </div>
-              </div>
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => setIsAvailabilityOnlySectionOpen((prev) => !prev)}
+                  className="w-full flex items-center justify-between rounded-lg border border-border bg-muted px-3 py-2 text-left"
+                >
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t('Availability Only Posts', 'Publications disponibilite uniquement')}
+                  </h3>
+                  {isAvailabilityOnlySectionOpen ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+                </button>
+                {isAvailabilityOnlySectionOpen && (visibleShipmentAvailabilityOnlyRoutes.length > 0 ? visibleShipmentAvailabilityOnlyRoutes.map(route => (
+                  <div key={route.id} className="rounded-xl border border-border bg-muted p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                      <p className="text-base font-bold text-foreground">{route.id}</p>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs px-2.5 py-1 rounded-full font-semibold bg-blue-100 text-blue-700">
+                          {t('Availability only', 'Disponibilite seulement')}
+                        </span>
+                      </div>
+                    </div>
 
-              <button
-                onClick={() => contactShipper(route, 'route', selectedShipment)}
-                disabled={isInvitationSent?.('route', route.id, selectedShipment?.id || 'none')}
-                className={`w-full px-4 py-2 rounded-lg transition-colors text-sm font-medium ${isInvitationSent?.('route', route.id, selectedShipment?.id || 'none') ? 'bg-green-600 text-white cursor-default' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
-              >
-                {isInvitationSent?.('route', route.id, selectedShipment?.id || 'none') ? t('Invitation Sent', 'Invitation envoyee') : t('Send Invitation', 'Envoyer une invitation')}
-              </button>
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 text-sm mb-4">
+                      <div className="rounded-lg border border-border bg-background p-3">
+                        <p className="text-xs text-muted-foreground">{t('Available on city', 'Disponible sur la ville')}</p>
+                        <p className="font-semibold text-foreground mt-1">{route.availableCity || route.from || t('N/A', 'N/A')}</p>
+                      </div>
+                      <div className="rounded-lg border border-border bg-background p-3">
+                        <p className="text-xs text-muted-foreground">{t('Distance from pickup', 'Distance depuis la ville de depart')}</p>
+                        <p className="font-semibold text-foreground mt-1">{Number.isFinite(route.availabilityDistanceKm) ? `${Math.round(route.availabilityDistanceKm)} km` : t('N/A', 'N/A')}</p>
+                      </div>
+                      <div className="rounded-lg border border-border bg-background p-3">
+                        <p className="text-xs text-muted-foreground">{t('Available', 'Disponible')}</p>
+                        <p className="font-semibold text-foreground mt-1">{formatWeightKg(route.available)}</p>
+                      </div>
+                      <div className="rounded-lg border border-border bg-background p-3">
+                        <p className="text-xs text-muted-foreground">{t('Availability date', 'Date de disponibilite')}</p>
+                        <p className="font-semibold text-foreground mt-1">{route.departure}</p>
+                      </div>
+                      <div className="rounded-lg border border-border bg-background p-3">
+                        <p className="text-xs text-muted-foreground">{t('Driver', 'Conducteur')}</p>
+                        <p className="font-semibold text-foreground mt-1">{route.driverName || t('Unknown driver', 'Conducteur inconnu')}</p>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => contactShipper(route, 'route', selectedShipment)}
+                      disabled={isInvitationSent?.('route', route.id, selectedShipment?.id || 'none')}
+                      className={`w-full px-4 py-2 rounded-lg transition-colors text-sm font-medium ${isInvitationSent?.('route', route.id, selectedShipment?.id || 'none') ? 'bg-green-600 text-white cursor-default' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
+                    >
+                      {isInvitationSent?.('route', route.id, selectedShipment?.id || 'none') ? t('Invitation Sent', 'Invitation envoyee') : t('Send Invitation', 'Envoyer une invitation')}
+                    </button>
+                  </div>
+                )) : (
+                  <p className="text-sm text-muted-foreground">
+                    {relevantRouteFilter === 'live_truckers'
+                      ? t('No relevant live availability-only posts found.', 'Aucune publication disponibilite uniquement en direct pertinente trouvee.')
+                      : t('No relevant availability-only posts found.', 'Aucune publication disponibilite uniquement pertinente trouvee.')}
+                  </p>
+                ))}
+              </div>
             </div>
-          ))}
+          )}
 
           {selectedRoute && routeRelevantShipments.length > 0 && routeRelevantShipments.map(shipment => (
             <div key={shipment.id} className="rounded-xl border border-border bg-muted p-4">
               <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                 <p className="text-base font-bold text-foreground">{shipment.id}</p>
-                <span className="text-xs px-2.5 py-1 rounded-full bg-primary/10 text-primary font-semibold">{shipment.relevanceScore}% match</span>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 text-sm">
@@ -5072,13 +5578,6 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
             </div>
           ))}
 
-          {selectedShipment && visibleShipmentRelevantRoutes.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              {relevantRouteFilter === 'live_truckers'
-                ? t('No relevant live truckers found.', 'Aucun transporteur en direct pertinent trouve.')
-                : t('No relevant availability posts found.', 'Aucune publication de disponibilite pertinente trouvee.')}
-            </p>
-          )}
           {selectedRoute && routeRelevantShipments.length === 0 && <p className="text-sm text-muted-foreground">{t('No relevant delivery posts found.', 'Aucune publication de livraison pertinente trouvee.')}</p>}
         </div>
         </div>

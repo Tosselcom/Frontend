@@ -12,15 +12,27 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [formData, setFormData] = useState({ email: "", password: "" })
   const [isLoading, setIsLoading] = useState(false)
+  const [notification, setNotification] = useState(null)
+
+  const pushNotification = (message, type = "info") => {
+    setNotification({ message, type })
+    setTimeout(() => {
+      setNotification((current) => (current?.message === message ? null : current))
+    }, 3000)
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setIsLoading(true)
     try {
-      await discoverApiBaseUrl({ force: true })
+      await Promise.race([
+        discoverApiBaseUrl(),
+        new Promise((resolve) => setTimeout(resolve, 1200)),
+      ])
       const response = await axios.post(
         getApiUrl("/user/auth/login"),
-        formData
+        formData,
+        { timeout: 8000 }
       )
 
       if (response.status === 200) {
@@ -39,16 +51,21 @@ export default function LoginPage() {
             })
           )
         }
-        alert("Login successful")
-        router.push("/dashboard")
+        pushNotification("Login successful", "success")
+        setTimeout(() => {
+          router.push("/dashboard")
+        }, 450)
       } else {
         console.error("Login failed:", response.data)
-        alert("Login failed: " + (response.data.message || "Unknown error"))
+        pushNotification("Login failed: " + (response.data.message || "Unknown error"), "error")
       }
     } catch (err) {
       console.error("Login error", err)
-      alert(
-        err.response?.data?.message || "Login failed; check console"
+      pushNotification(
+        err.code === "ECONNABORTED"
+          ? "Login request timed out. Please try again."
+          : (err.response?.data?.message || "Login failed; check console"),
+        "error"
       )
     } finally {
       setIsLoading(false)
@@ -168,6 +185,16 @@ export default function LoginPage() {
           </p>
         </div>
       </div>
+
+      {notification && (
+        <div className="fixed right-4 top-4 z-50 max-w-sm animate-in fade-in slide-in-from-top-2 duration-200">
+          <div
+            className={`rounded-lg border px-4 py-3 text-sm shadow-lg ${notification.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-800"}`}
+          >
+            {notification.message}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
