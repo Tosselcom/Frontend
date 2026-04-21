@@ -118,6 +118,121 @@ function formatVolumeM3(value) {
   return `${raw} m^3`
 }
 
+function resizeVehicleAllocationInputs(previousValues, nextCount) {
+  const normalizedCount = Math.max(1, Math.floor(Number(nextCount) || 1))
+  return Array.from({ length: normalizedCount }, (_, index) => String(previousValues?.[index] ?? ''))
+}
+
+function normalizeVehicleAllocationRecords(rawValue, fallbackCapacity) {
+  let parsedValue = rawValue
+
+  if (typeof parsedValue === 'string') {
+    const trimmedValue = parsedValue.trim()
+    if (!trimmedValue) {
+      parsedValue = null
+    } else {
+      try {
+        parsedValue = JSON.parse(trimmedValue)
+      } catch {
+        parsedValue = null
+      }
+    }
+  }
+
+  const fallbackNumericCapacity = parseNumericInput(fallbackCapacity)
+  const fallbackRecord = Number.isFinite(fallbackNumericCapacity) && fallbackNumericCapacity > 0
+    ? [{ name: 'Vehicle 1', capacity: Math.round(fallbackNumericCapacity) }]
+    : []
+
+  if (parsedValue == null) {
+    return fallbackRecord
+  }
+
+  if (!Array.isArray(parsedValue)) {
+    return fallbackRecord
+  }
+
+  const normalizedRecords = parsedValue
+    .map((entry, index) => {
+      const rawCapacity = typeof entry === 'number'
+        ? entry
+        : entry?.capacity ?? entry?.value ?? entry?.amount ?? entry
+      const parsedCapacity = parseNumericInput(rawCapacity)
+
+      if (!Number.isFinite(parsedCapacity) || parsedCapacity <= 0) {
+        return null
+      }
+
+      const rawName = typeof entry === 'object' && entry != null
+        ? String(entry.name || entry.label || `Vehicle ${index + 1}`).trim()
+        : `Vehicle ${index + 1}`
+
+      return {
+        name: rawName || `Vehicle ${index + 1}`,
+        capacity: Math.round(parsedCapacity),
+      }
+    })
+    .filter(Boolean)
+
+  return normalizedRecords.length > 0 ? normalizedRecords : fallbackRecord
+}
+
+function buildVehicleAllocationPayload(vehicleAllocationValues, totalCapacity) {
+  const parsedTotalCapacity = parseNumericInput(totalCapacity)
+
+  if (!Number.isFinite(parsedTotalCapacity) || parsedTotalCapacity <= 0) {
+    return {
+      error: 'Capacity must be a valid number greater than 0',
+    }
+  }
+
+  const normalizedAllocations = Array.isArray(vehicleAllocationValues) && vehicleAllocationValues.length > 0
+    ? vehicleAllocationValues.map((entry, index) => {
+        const parsedCapacity = parseNumericInput(entry)
+        if (!Number.isFinite(parsedCapacity) || parsedCapacity <= 0) {
+          return null
+        }
+
+        return {
+          name: `Vehicle ${index + 1}`,
+          capacity: Math.round(parsedCapacity),
+        }
+      })
+    : [{ name: 'Vehicle 1', capacity: Math.round(parsedTotalCapacity) }]
+
+  const invalidIndex = normalizedAllocations.findIndex((entry) => entry == null)
+  if (invalidIndex !== -1) {
+    return {
+      error: `Vehicle ${invalidIndex + 1} capacity must be a valid number greater than 0`,
+    }
+  }
+
+  const roundedTotalCapacity = Math.round(parsedTotalCapacity)
+  const allocationTotal = normalizedAllocations.reduce((sum, entry) => sum + entry.capacity, 0)
+
+  if (allocationTotal !== roundedTotalCapacity) {
+    return {
+      error: `Vehicle capacities must add up to ${formatWeightKg(roundedTotalCapacity)}`,
+    }
+  }
+
+  return {
+    vehicleAllocation: normalizedAllocations,
+  }
+}
+
+function formatVehicleAllocationSummary(vehicleAllocation, fallbackCapacity) {
+  const normalizedAllocations = normalizeVehicleAllocationRecords(vehicleAllocation, fallbackCapacity)
+
+  if (!normalizedAllocations.length) {
+    return 'N/A'
+  }
+
+  return normalizedAllocations
+    .map((entry) => `${entry.name}: ${formatWeightKg(entry.capacity)}`)
+    .join(', ')
+}
+
 function getDialablePhone(rawPhone) {
   if (!rawPhone) return ''
   const normalized = String(rawPhone).replace(/[^\d+]/g, '').trim()
@@ -160,7 +275,6 @@ function mapDeliveryPostFromDb(row) {
     destination: row.destination,
     weight: String(row.weight ?? ''),
     capacity: String(row.volume ?? ''),
-    quantity: String(row.quantity ?? 1),
     dimensions: row.volume != null ? String(row.volume) : 'N/A',
     category: row.itemCategory || 'general',
     description: row.description || '',
@@ -170,11 +284,14 @@ function mapDeliveryPostFromDb(row) {
     status: 'posted',
     statusHistory: [{ status: 'posted', at: row.created_at || new Date().toISOString() }],
     ownerId: row.ownerEmail || String(row.user_id || ''),
+    ownerDbId: Number(row.user_id) || null,
     ownerName: row.ownerName || row.ownerEmail || 'Unknown user',
   }
 }
 
 function mapAvailabilityPostFromDb(row) {
+  const vehicleAllocation = normalizeVehicleAllocationRecords(row.vehicle_allocation, row.capacity)
+
   return {
     id: `ROUTE-DB-${row.id}`,
     dbId: row.id,
@@ -182,15 +299,17 @@ function mapAvailabilityPostFromDb(row) {
     to: row.destination,
     capacity: String(row.capacity ?? ''),
     available: String(row.capacity ?? ''),
-    stops: Number(row.numberOfStops ?? 0),
     departure: row.date || formatDateDisplay(row.created_at),
     postType: row.postType || 'full_route',
     availableCity: row.available_city || '',
+    vehicleAllocation,
+    vehicleCount: vehicleAllocation.length,
     isLive: false,
     driverName: row.ownerName || row.ownerEmail || 'Unknown user',
     currentStop: '',
     lastSeen: 'Offline',
     ownerId: row.ownerEmail || String(row.user_id || ''),
+    ownerDbId: Number(row.user_id) || null,
     ownerName: row.ownerName || row.ownerEmail || 'Unknown user',
   }
 }
@@ -267,6 +386,8 @@ export default function DashboardPage() {
   const [shipmentCapacityFilter, setShipmentCapacityFilter] = useState('')
   const [routeOriginFilter, setRouteOriginFilter] = useState('')
   const [routeDestinationFilter, setRouteDestinationFilter] = useState('')
+  const [routeCorridorOriginFilter, setRouteCorridorOriginFilter] = useState('')
+  const [routeCorridorDestinationFilter, setRouteCorridorDestinationFilter] = useState('')
   const [routeCapacityFilter, setRouteCapacityFilter] = useState('')
   const [detailView, setDetailView] = useState({ type: null, id: null })
   const realtimeSocketRef = useRef(null)
@@ -274,7 +395,7 @@ export default function DashboardPage() {
   const [showShipmentModal, setShowShipmentModal] = useState(false)
   const [isSubmittingShipment, setIsSubmittingShipment] = useState(false)
   const [routePostType, setRoutePostType] = useState('full_route')
-  const [formData, setFormData] = useState({ from: '', to: '', capacity: '', stops: '', departure: '', availableCity: '' })
+  const [formData, setFormData] = useState({ from: '', to: '', capacity: '', vehicleCount: '1', vehicleAllocations: [''], departure: '', availableCity: '' })
   const [shipmentFormData, setShipmentFormData] = useState({
     itemName: '',
     origin: '',
@@ -282,7 +403,6 @@ export default function DashboardPage() {
     weight: '',
     capacity: '',
     deliveryDate: '',
-    quantity: '1',
     dimensions: '',
     category: 'general',
     description: '',
@@ -314,7 +434,51 @@ export default function DashboardPage() {
   const [receivedInvitations, setReceivedInvitations] = useState([])
   const [sentInvitations, setSentInvitations] = useState([])
   const [selectedInvitationId, setSelectedInvitationId] = useState('')
-  const [sentInvitationKeys, setSentInvitationKeys] = useState({})
+  const getInvitationKey = (source, referenceId) => `${source}:${referenceId}`
+
+  const sentInvitationKeys = useMemo(() => {
+    const keys = {}
+
+    sentInvitations
+      .filter((invitation) => invitation?.status === 'pending')
+      .forEach((invitation) => {
+        const senderShipmentId = invitation?.deliveryPostDbId ? `SHP-DB-${invitation.deliveryPostDbId}` : null
+        const senderRouteId = invitation?.availabilityPostDbId ? `ROUTE-DB-${invitation.availabilityPostDbId}` : null
+
+        // Target-only invitations (no paired opposite post) should still lock their target card.
+        if (senderRouteId && !senderShipmentId) {
+          keys[getInvitationKey('community_route', senderRouteId)] = true
+        }
+
+        if (senderShipmentId && !senderRouteId) {
+          keys[getInvitationKey('community_shipment', senderShipmentId)] = true
+        }
+
+        // Sender is client (delivery post owner) inviting a route post.
+        if (invitation?.direction === 'client_to_trucker' && senderShipmentId && senderRouteId) {
+          keys[getInvitationKey('route', senderRouteId)] = true
+          keys[getInvitationKey('community_route', senderRouteId)] = true
+        }
+
+        // Sender is trucker (availability post owner) inviting a shipment post.
+        if (invitation?.direction === 'trucker_to_client' && senderRouteId && senderShipmentId) {
+          keys[getInvitationKey('route_relevant_shipment', senderShipmentId)] = true
+          keys[getInvitationKey('community_shipment', senderShipmentId)] = true
+        }
+
+        // Only direct invitations should lock by recipient user id.
+        // Post-linked invitations must stay scoped to the targeted post key.
+        const isDirectInvitation = invitation?.direction === 'direct'
+          && !invitation?.deliveryPostDbId
+          && !invitation?.availabilityPostDbId
+
+        if (isDirectInvitation && invitation?.recipientUserId) {
+          keys[getInvitationKey('community_user', invitation.recipientUserId)] = true
+        }
+      })
+
+    return keys
+  }, [sentInvitations])
 
   const [baseNotifications, setBaseNotifications] = useState([])
   const [readNotificationIds, setReadNotificationIds] = useState([])
@@ -351,91 +515,12 @@ export default function DashboardPage() {
     [receivedInvitations],
   )
 
-  const relevantPostNotifications = useMemo(
-    () => {
-      const routeById = new Map(myRouteItems.map((route) => [route.id, route]))
-      const shipmentById = new Map(myShipmentItems.map((shipment) => [shipment.id, shipment]))
-      const generated = []
-
-      myShipmentItems.forEach((shipment) => {
-        const matchedRoutes = routeItems
-          .filter((route) => {
-            if (route.from !== shipment.origin || route.to !== shipment.destination) return false
-            return getUserOwnerKey({ email: route.ownerId, name: route.ownerName }) !== currentUserKey
-          })
-          .sort((a, b) => Number(b.available || 0) - Number(a.available || 0))
-
-        const bestRoute = matchedRoutes[0]
-        if (!bestRoute) return
-
-        generated.push({
-          id: `NOT-REL-SHP-${shipment.id}-${bestRoute.id}`,
-          title: 'New relevant availability post',
-          description: `${bestRoute.driverName || 'A driver'} posted availability on ${bestRoute.from} -> ${bestRoute.to} for ${shipment.id}.`,
-          eventType: 'relevant_post_found',
-          targetRole: 'shipper',
-          linkedPostType: 'shipment',
-          linkedPostId: shipment.id,
-          deepLink: {
-            section: 'shipments',
-            detailType: 'shipment',
-            detailId: shipment.id,
-          },
-        })
-      })
-
-      myRouteItems.forEach((route) => {
-        if (route.postType !== 'full_route') return
-
-        const matchedShipments = shipmentItems
-          .filter((shipment) => {
-            if (shipment.origin !== route.from || shipment.destination !== route.to) return false
-            return getUserOwnerKey({ email: shipment.ownerId, name: shipment.ownerName }) !== currentUserKey
-          })
-          .sort((a, b) => {
-            const aWeight = Number.parseFloat((a.weight || '0').replace(',', '.')) || 0
-            const bWeight = Number.parseFloat((b.weight || '0').replace(',', '.')) || 0
-            return bWeight - aWeight
-          })
-
-        const bestShipment = matchedShipments[0]
-        if (!bestShipment) return
-
-        generated.push({
-          id: `NOT-REL-ROUTE-${route.id}-${bestShipment.id}`,
-          title: 'New relevant delivery request',
-          description: `${bestShipment.itemName} (${bestShipment.id}) matches your route ${route.from} -> ${route.to}.`,
-          eventType: 'relevant_post_found',
-          targetRole: 'trucker',
-          linkedPostType: 'route',
-          linkedPostId: route.id,
-          deepLink: {
-            section: 'routes',
-            detailType: 'route',
-            detailId: route.id,
-          },
-        })
-      })
-
-      return generated.filter((notification) => {
-        if (notification.linkedPostType === 'route') {
-          return routeById.has(notification.linkedPostId)
-        }
-        if (notification.linkedPostType === 'shipment') {
-          return shipmentById.has(notification.linkedPostId)
-        }
-        return true
-      })
-    },
-    [routeItems, shipmentItems, myRouteItems, myShipmentItems, currentUserKey],
-  )
-
   const notifications = useMemo(
-    () => [...invitationNotifications, ...relevantPostNotifications, ...baseNotifications].map((notification) => ({
+    () => [...invitationNotifications, ...baseNotifications].map((notification) => ({
       ...notification,
       isRead: Boolean(notification.isRead) || readNotificationIds.includes(notification.id),
     })),
-    [invitationNotifications, relevantPostNotifications, baseNotifications, readNotificationIds],
+    [invitationNotifications, baseNotifications, readNotificationIds],
   )
 
   const hasUnreadNotifications = useMemo(
@@ -648,7 +733,6 @@ export default function DashboardPage() {
       weight: '',
       capacity: '',
       deliveryDate: '',
-      quantity: '1',
       dimensions: '',
       category: 'general',
       description: '',
@@ -689,9 +773,8 @@ export default function DashboardPage() {
 
     const weightValue = parseNumericInput(shipmentFormData.weight)
     const volumeValue = parseNumericInput(shipmentFormData.capacity)
-    const quantityValue = parseNumericInput(shipmentFormData.quantity || '1')
 
-    console.log('Parsed values - Weight:', weightValue, 'Volume:', volumeValue, 'Quantity:', quantityValue)
+    console.log('Parsed values - Weight:', weightValue, 'Volume:', volumeValue)
 
     if (!Number.isFinite(weightValue) || weightValue <= 0) {
       const msg = 'Weight must be a valid number greater than 0'
@@ -703,13 +786,6 @@ export default function DashboardPage() {
     if (!Number.isFinite(volumeValue) || volumeValue <= 0) {
       const msg = 'Capacity/volume must be a valid number greater than 0'
       console.warn('Volume validation failed:', msg, 'Value:', volumeValue)
-      pushNotification(msg)
-      return
-    }
-
-    if (!Number.isFinite(quantityValue) || quantityValue <= 0) {
-      const msg = 'Quantity must be a valid number greater than 0'
-      console.warn('Quantity validation failed:', msg, 'Value:', quantityValue)
       pushNotification(msg)
       return
     }
@@ -730,7 +806,6 @@ export default function DashboardPage() {
       weight: Math.round(weightValue),
       volume: Math.round(volumeValue),
       deliveryDate: shipmentFormData.deliveryDate,
-      quantity: Math.round(quantityValue),
       itemCategory: shipmentFormData.category || 'general',
       description: shipmentFormData.description || '',
     }
@@ -758,7 +833,6 @@ export default function DashboardPage() {
         destination: shipmentFormData.destination,
         weight: shipmentFormData.weight,
         capacity: shipmentFormData.capacity,
-        quantity: shipmentFormData.quantity || '1',
         dimensions: shipmentFormData.dimensions || 'N/A',
         category: shipmentFormData.category,
         description: shipmentFormData.description || '',
@@ -786,17 +860,25 @@ export default function DashboardPage() {
 
   const handlePostRoute = (type = 'full_route') => {
     setRoutePostType(type)
-    setFormData({ from: '', to: '', capacity: '', stops: '', departure: '', availableCity: '' })
+    setFormData({ from: '', to: '', capacity: '', vehicleCount: '1', vehicleAllocations: [''], departure: '', availableCity: '' })
     setShowRouteModal(true)
   }
 
   const handleSubmitRoute = async () => {
-    if (!formData.capacity) {
+    const totalCapacity = parseNumericInput(formData.capacity)
+
+    if (!Number.isFinite(totalCapacity) || totalCapacity <= 0) {
       pushNotification('Please fill in capacity')
       return
     }
 
-    if (routePostType === 'full_route' && (!formData.stops || !formData.departure)) {
+    const vehicleAllocationPayload = buildVehicleAllocationPayload(formData.vehicleAllocations, totalCapacity)
+    if (vehicleAllocationPayload.error) {
+      pushNotification(vehicleAllocationPayload.error)
+      return
+    }
+
+    if (routePostType === 'full_route' && !formData.departure) {
       pushNotification('Please fill in all route details')
       return
     }
@@ -828,8 +910,8 @@ export default function DashboardPage() {
       availableCity: routePostType === 'availability_only'
         ? formData.availableCity
         : (formData.availableCity || routeDestination || routeOrigin),
-      capacity: Number(formData.capacity),
-      numberOfStops: routePostType === 'full_route' ? Number.parseInt(formData.stops || '0', 10) : 0,
+      capacity: Math.round(totalCapacity),
+      vehicleAllocation: vehicleAllocationPayload.vehicleAllocation,
       date: routePostType === 'full_route' ? formData.departure : (formData.departure || 'Flexible'),
     }
 
@@ -847,7 +929,8 @@ export default function DashboardPage() {
         to: routeDestination,
         capacity: formData.capacity,
         available: formData.capacity,
-        stops: routePostType === 'full_route' ? parseInt(formData.stops, 10) : 0,
+        vehicleAllocation: vehicleAllocationPayload.vehicleAllocation,
+        vehicleCount: vehicleAllocationPayload.vehicleAllocation.length,
         departure: routePostType === 'full_route' ? formData.departure : (formData.departure || 'Flexible'),
         postType: routePostType,
         availableCity: routePostType === 'availability_only'
@@ -865,7 +948,7 @@ export default function DashboardPage() {
       pushNotification(`${routePostType === 'full_route' ? 'Route' : 'Availability'} post created: ${newRoute.id}`)
       setShowRouteModal(false)
       setRoutePostType('full_route')
-      setFormData({ from: '', to: '', capacity: '', stops: '', departure: '', availableCity: '' })
+      setFormData({ from: '', to: '', capacity: '', vehicleCount: '1', vehicleAllocations: [''], departure: '', availableCity: '' })
     } catch (error) {
       pushNotification(error?.response?.data?.message || 'Failed to create availability post')
     }
@@ -982,7 +1065,6 @@ export default function DashboardPage() {
       destination: String(updates?.destination || '').trim(),
       weight: String(updates?.weight || '').trim(),
       capacity: String(updates?.capacity || '').trim(),
-      quantity: String(updates?.quantity || '').trim(),
       date: String(updates?.date || '').trim(),
       category: String(updates?.category || '').trim(),
       description: String(updates?.description || '').trim(),
@@ -1019,7 +1101,6 @@ export default function DashboardPage() {
       destination: normalizedUpdates.destination,
       weight: parseNumericInput(normalizedUpdates.weight),
       volume: parseNumericInput(normalizedUpdates.capacity),
-      quantity: parseNumericInput(normalizedUpdates.quantity || '1'),
       deliveryDate: normalizedUpdates.date,
       itemCategory: normalizedUpdates.category || 'general',
       description: normalizedUpdates.description || '',
@@ -1039,7 +1120,6 @@ export default function DashboardPage() {
               destination: normalizedUpdates.destination,
               weight: normalizedUpdates.weight,
               capacity: normalizedUpdates.capacity,
-              quantity: normalizedUpdates.quantity || item.quantity,
               date: normalizedUpdates.date,
               category: normalizedUpdates.category || item.category,
               description: normalizedUpdates.description,
@@ -1066,13 +1146,21 @@ export default function DashboardPage() {
       from: String(updates?.from || targetRoute.from || '').trim(),
       to: String(updates?.to || targetRoute.to || '').trim(),
       capacity: String(updates?.capacity || '').trim(),
-      stops: String(updates?.stops || '0').trim(),
+      vehicleAllocations: Array.isArray(updates?.vehicleAllocations) ? updates.vehicleAllocations : [],
       departure: String(updates?.departure || '').trim(),
       availableCity: String(updates?.availableCity || targetRoute.availableCity || '').trim(),
     }
 
-    if (!normalizedUpdates.capacity) {
+    const totalCapacity = parseNumericInput(normalizedUpdates.capacity)
+
+    if (!Number.isFinite(totalCapacity) || totalCapacity <= 0) {
       pushNotification('Capacity is required')
+      return
+    }
+
+    const vehicleAllocationPayload = buildVehicleAllocationPayload(normalizedUpdates.vehicleAllocations, totalCapacity)
+    if (vehicleAllocationPayload.error) {
+      pushNotification(vehicleAllocationPayload.error)
       return
     }
 
@@ -1104,7 +1192,8 @@ export default function DashboardPage() {
               to: routeDestination,
               capacity: normalizedUpdates.capacity,
               available: normalizedUpdates.capacity,
-              stops: normalizedUpdates.postType === 'full_route' ? Number.parseInt(normalizedUpdates.stops || '0', 10) : 0,
+              vehicleAllocation: vehicleAllocationPayload.vehicleAllocation,
+              vehicleCount: vehicleAllocationPayload.vehicleAllocation.length,
               departure: normalizedUpdates.departure || 'Flexible',
               availableCity: normalizedUpdates.availableCity || routeDestination || routeOrigin,
             }
@@ -1126,8 +1215,8 @@ export default function DashboardPage() {
       origin: routeOrigin,
       destination: routeDestination,
       availableCity: normalizedUpdates.availableCity || routeDestination || routeOrigin,
-      capacity: parseNumericInput(normalizedUpdates.capacity),
-      numberOfStops: normalizedUpdates.postType === 'full_route' ? Number.parseInt(normalizedUpdates.stops || '0', 10) : 0,
+      capacity: Math.round(totalCapacity),
+      vehicleAllocation: vehicleAllocationPayload.vehicleAllocation,
       date: normalizedUpdates.departure || 'Flexible',
     }
 
@@ -1145,7 +1234,8 @@ export default function DashboardPage() {
               to: payload.destination,
               capacity: String(payload.capacity),
               available: String(payload.capacity),
-              stops: payload.numberOfStops,
+              vehicleAllocation: payload.vehicleAllocation,
+              vehicleCount: payload.vehicleAllocation.length,
               departure: payload.date,
               availableCity: payload.availableCity,
             }
@@ -1287,35 +1377,75 @@ export default function DashboardPage() {
     })
   }
 
-  const getInvitationKey = (source, referenceId, sourcePostId = 'none') => `${source}:${sourcePostId}:${referenceId}`
-  const isInvitationSent = (source, referenceId, sourcePostId = 'none') => Boolean(sentInvitationKeys[getInvitationKey(source, referenceId, sourcePostId)])
+  const isInvitationSent = (source, referenceId) => Boolean(sentInvitationKeys[getInvitationKey(source, referenceId)])
 
-  const resolveInvitationPayload = (target, source, sourcePost = null) => {
+  const resolveInvitationPayload = (target, source, contextPost = null) => {
     if (!target) return null
 
+    const targetRecipientUserId = Number(target?.ownerDbId)
+    const hasTargetRecipient = Number.isFinite(targetRecipientUserId) && targetRecipientUserId > 0
+
     if (source === 'route') {
-      const senderShipment = sourcePost?.dbId
-        ? myShipmentItems.find((shipment) => shipment.dbId === sourcePost.dbId)
-        : null
-      if (!senderShipment || !target.dbId) return null
+      const linkedShipment = contextPost?.dbId ? contextPost : null
+      if (!linkedShipment || !target.dbId) return null
       return {
         availabilityPostId: target.dbId,
-        deliveryPostId: senderShipment.dbId,
-        senderPostType: 'delivery',
-        senderPostId: senderShipment.dbId,
+        deliveryPostId: linkedShipment.dbId,
+        targetPostType: 'availability',
+        targetPostId: target.dbId,
       }
     }
 
-    if (source === 'community_shipment' || source === 'route_relevant_shipment') {
-      const senderRoute = sourcePost?.dbId
-        ? myRouteItems.find((route) => route.dbId === sourcePost.dbId)
-        : null
-      if (!senderRoute || !target.dbId) return null
+    if (source === 'community_shipment') {
+      if (!target.dbId) return null
+
+      const inviterShipment = contextPost?.dbId ? contextPost : null
+
+      if (!inviterShipment) {
+        return {
+          ...(hasTargetRecipient ? { recipientUserId: targetRecipientUserId } : {}),
+          targetPostType: 'delivery',
+          targetPostId: target.dbId,
+        }
+      }
+
       return {
-        availabilityPostId: senderRoute.dbId,
+        availabilityPostId: target.dbId,
+        deliveryPostId: inviterShipment.dbId,
+        targetPostType: 'availability',
+        targetPostId: target.dbId,
+      }
+    }
+
+    if (source === 'community_route') {
+      if (!target.dbId) return null
+
+      const inviterRoute = contextPost?.dbId ? contextPost : null
+
+      if (!inviterRoute) {
+        return {
+          ...(hasTargetRecipient ? { recipientUserId: targetRecipientUserId } : {}),
+          targetPostType: 'availability',
+          targetPostId: target.dbId,
+        }
+      }
+
+      return {
+        availabilityPostId: inviterRoute.dbId,
         deliveryPostId: target.dbId,
-        senderPostType: 'availability',
-        senderPostId: senderRoute.dbId,
+        targetPostType: 'delivery',
+        targetPostId: target.dbId,
+      }
+    }
+
+    if (source === 'route_relevant_shipment') {
+      const linkedRoute = contextPost?.dbId ? contextPost : null
+      if (!linkedRoute || !target.dbId) return null
+      return {
+        availabilityPostId: linkedRoute.dbId,
+        deliveryPostId: target.dbId,
+        targetPostType: 'delivery',
+        targetPostId: target.dbId,
       }
     }
 
@@ -1333,9 +1463,12 @@ export default function DashboardPage() {
     return () => window.removeEventListener('user:updated', handleUserUpdated)
   }, [])
 
-  const contactShipper = async (target, source = 'general', sourcePost = null) => {
+  const contactShipper = async (target, source = 'general', contextPost = null) => {
     const referenceId = typeof target === 'string' ? target : target?.id
-    if (!referenceId) return
+    if (!referenceId) {
+      pushNotification('No compatible post found to invite right now')
+      return
+    }
 
     const token = getStoredToken()
     if (!token) {
@@ -1344,17 +1477,14 @@ export default function DashboardPage() {
       return
     }
 
-    const payload = resolveInvitationPayload(target, source, sourcePost)
+    const payload = resolveInvitationPayload(target, source, contextPost)
     if (!payload) {
-      pushNotification('Select your source post first, then invite from that post.')
+      pushNotification('No compatible post found to invite right now')
       return
     }
 
-    const sourcePostKey = String(sourcePost?.id || sourcePost?.dbId || 'none')
-
     try {
       const response = await axios.post(getApiUrl('/invitations'), payload, { headers: { token } })
-      setSentInvitationKeys((prev) => ({ ...prev, [getInvitationKey(source, referenceId, sourcePostKey)]: true }))
       pushNotification(response?.data?.message || `Invitation sent: ${referenceId}`, {
         eventType: 'invite_sent',
         targetRole: source === 'route' ? 'trucker' : 'shipper',
@@ -1468,8 +1598,38 @@ export default function DashboardPage() {
 
   const filteredRoutes = useMemo(() => 
     routeItems.filter(item => {
-      const originMatches = !routeOriginFilter || item.from.toLowerCase().includes(routeOriginFilter.toLowerCase())
-      const destinationMatches = !routeDestinationFilter || item.to.toLowerCase().includes(routeDestinationFilter.toLowerCase())
+      const normalizedOriginFilter = normalizeRouteText(routeOriginFilter)
+      const normalizedDestinationFilter = normalizeRouteText(routeDestinationFilter)
+      const normalizedCorridorOriginFilter = normalizeRouteText(routeCorridorOriginFilter)
+      const normalizedCorridorDestinationFilter = normalizeRouteText(routeCorridorDestinationFilter)
+      const hasOriginFilter = Boolean(normalizedOriginFilter)
+      const hasDestinationFilter = Boolean(normalizedDestinationFilter)
+      const hasCorridorOriginFilter = Boolean(normalizedCorridorOriginFilter)
+      const hasCorridorDestinationFilter = Boolean(normalizedCorridorDestinationFilter)
+      const corridorFiltersActive = hasCorridorOriginFilter && hasCorridorDestinationFilter
+      const routeWaypoints = getRouteWaypoints(item.from, item.availableCity, item.to)
+      const normalizedRouteWaypoints = routeWaypoints.map((value) => normalizeWilayaName(value))
+
+      const originTextMatches = !hasOriginFilter || normalizeRouteText(item.from).includes(normalizedOriginFilter)
+      const destinationTextMatches = !hasDestinationFilter || normalizeRouteText(item.to).includes(normalizedDestinationFilter)
+
+      const corridorOriginTextMatches = !hasCorridorOriginFilter || normalizedRouteWaypoints.includes(normalizedCorridorOriginFilter)
+      const corridorDestinationTextMatches = !hasCorridorDestinationFilter || normalizedRouteWaypoints.includes(normalizedCorridorDestinationFilter)
+
+      const corridorMatches = corridorFiltersActive
+        && (
+          routeContainsRequestedSegment(routeCorridorOriginFilter, routeCorridorDestinationFilter, item.from, item.to)
+          || routeCorridorMatchesRequestedSegment(routeCorridorOriginFilter, routeCorridorDestinationFilter, item.from, item.to, item.availableCity)
+        )
+
+      const corridorGeometryMatches = corridorFiltersActive
+        ? (corridorOriginTextMatches && corridorDestinationTextMatches) || corridorMatches
+        : true
+
+      const routeGeometryMatches = hasOriginFilter && hasDestinationFilter
+        ? (originTextMatches && destinationTextMatches) || corridorMatches
+        : originTextMatches && destinationTextMatches
+
       const capacityMatches = !routeCapacityFilter || (parseFloat(item.available) || 0) > parseFloat(routeCapacityFilter)
 
       const typeMatches =
@@ -1478,8 +1638,8 @@ export default function DashboardPage() {
         (routeTypeFilter === 'full_route' && item.postType === 'full_route') ||
         (routeTypeFilter === 'live_truckers' && item.isLive)
 
-      return originMatches && destinationMatches && capacityMatches && typeMatches
-    }), [routeItems, routeOriginFilter, routeDestinationFilter, routeCapacityFilter, routeTypeFilter]
+      return routeGeometryMatches && corridorGeometryMatches && capacityMatches && typeMatches
+    }), [routeItems, routeOriginFilter, routeDestinationFilter, routeCorridorOriginFilter, routeCorridorDestinationFilter, routeCapacityFilter, routeTypeFilter]
   )
 
   return (
@@ -1719,9 +1879,13 @@ export default function DashboardPage() {
                     setRouteTypeFilter={setRouteTypeFilter}
                     routeOriginFilter={routeOriginFilter}
                     routeDestinationFilter={routeDestinationFilter}
+                    routeCorridorOriginFilter={routeCorridorOriginFilter}
+                    routeCorridorDestinationFilter={routeCorridorDestinationFilter}
                     routeCapacityFilter={routeCapacityFilter}
                     setRouteOriginFilter={setRouteOriginFilter}
                     setRouteDestinationFilter={setRouteDestinationFilter}
+                    setRouteCorridorOriginFilter={setRouteCorridorOriginFilter}
+                    setRouteCorridorDestinationFilter={setRouteCorridorDestinationFilter}
                     setRouteCapacityFilter={setRouteCapacityFilter}
                     deleteRoute={deleteRoute}
                     contactShipper={contactShipper}
@@ -1795,8 +1959,8 @@ export default function DashboardPage() {
       
       {/* Route Creation Modal */}
       {showRouteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-card border border-border rounded-xl p-6 shadow-lg max-w-md w-full mx-4 animate-in fade-in zoom-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 py-6">
+          <div className="bg-card border border-border rounded-xl p-6 shadow-lg max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in duration-200">
             <h2 className="text-2xl font-bold text-foreground mb-2">{tr(uiLanguage, 'Create Post', 'Creer une publication')}</h2>
             <p className="text-sm text-muted-foreground mb-4">{tr(uiLanguage, 'Choose ', 'Choisissez ')}<span className="font-semibold text-foreground">{tr(uiLanguage, 'Trucker - I am available', 'Transporteur - Je suis disponible')}</span>{tr(uiLanguage, ' and select the post type.', ' et selectionnez le type de publication.')}</p>
 
@@ -1862,21 +2026,57 @@ export default function DashboardPage() {
                   step="1"
                 />
               </div>
-              
-              {routePostType === 'full_route' && (
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Number of Stops', 'Nombre d arrets')}</label>
-                  <input
-                    type="number"
-                    placeholder={tr(uiLanguage, 'e.g., 3', 'ex. 3')}
-                    value={formData.stops}
-                    onChange={(e) => setFormData({ ...formData, stops: e.target.value })}
-                    className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                    min="1"
-                  />
+
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Vehicle count', 'Nombre de vehicules')}</label>
+                <input
+                  type="number"
+                  min="1"
+                  placeholder={tr(uiLanguage, 'e.g., 3', 'ex. 3')}
+                  value={formData.vehicleCount}
+                  onChange={(e) => {
+                    const nextCount = Math.max(1, Math.floor(parseNumericInput(e.target.value) || 1))
+                    setFormData((prev) => ({
+                      ...prev,
+                      vehicleCount: String(nextCount),
+                      vehicleAllocations: resizeVehicleAllocationInputs(prev.vehicleAllocations, nextCount),
+                    }))
+                  }}
+                  className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                  step="1"
+                />
+              </div>
+
+              <div className="space-y-3 rounded-lg border border-border bg-muted/40 p-3">
+                <p className="text-xs text-muted-foreground">
+                  {tr(uiLanguage, 'Split the total capacity across the vehicles below. The sum must match the total capacity.', 'Repartissez la capacite totale entre les vehicules ci-dessous. La somme doit correspondre a la capacite totale.')}
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {formData.vehicleAllocations.map((allocationValue, index) => (
+                    <div key={`vehicle-allocation-${index}`}>
+                      <label className="block text-xs font-medium text-muted-foreground mb-2">{tr(uiLanguage, `Vehicle ${index + 1} capacity (kg)`, `Capacite vehicule ${index + 1} (kg)`)}</label>
+                      <input
+                        type="number"
+                        min="1"
+                        placeholder={tr(uiLanguage, 'e.g., 200', 'ex. 200')}
+                        value={allocationValue}
+                        onChange={(e) => {
+                          const nextValue = e.target.value
+                          setFormData((prev) => ({
+                            ...prev,
+                            vehicleAllocations: prev.vehicleAllocations.map((currentValue, currentIndex) => (
+                              currentIndex === index ? nextValue : currentValue
+                            )),
+                          }))
+                        }}
+                        className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                        step="1"
+                      />
+                    </div>
+                  ))}
                 </div>
-              )}
-              
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">{routePostType === 'full_route' ? tr(uiLanguage, 'Departure Date', 'Date de depart') : tr(uiLanguage, 'Availability Date (optional)', 'Date de disponibilite (optionnelle)')}</label>
                 <input
@@ -1899,7 +2099,7 @@ export default function DashboardPage() {
                 onClick={() => {
                   setShowRouteModal(false)
                   setRoutePostType('full_route')
-                  setFormData({ from: '', to: '', capacity: '', stops: '', departure: '', availableCity: '' })
+                  setFormData({ from: '', to: '', capacity: '', vehicleCount: '1', vehicleAllocations: [''], departure: '', availableCity: '' })
                 }}
                 className="flex-1 px-4 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 transition-colors font-medium"
               >
@@ -1995,18 +2195,6 @@ export default function DashboardPage() {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Quantity', 'Quantite')}</label>
-                  <input
-                    type="number"
-                    placeholder={tr(uiLanguage, 'e.g., 4', 'ex. 4')}
-                    value={shipmentFormData.quantity}
-                    onChange={(e) => setShipmentFormData({ ...shipmentFormData, quantity: e.target.value })}
-                    className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                    min="1"
-                    step="1"
-                  />
-                </div>
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Dimensions notes (optional)', 'Notes dimensions (optionnelles)')}</label>
                   <input
@@ -2277,6 +2465,32 @@ function ShipmentsSection({
   const communityShipments = filteredShipments.filter((shipment) => getUserOwnerKey({ email: shipment.ownerId }) !== currentUserKey)
   const visibleShipments = shipmentViewScope === 'mine' ? myShipments : communityShipments
 
+  const getBestRouteForShipment = (shipment) => {
+    if (!shipment) return null
+
+    const candidates = (routeItems || [])
+      .filter((route) => route?.dbId)
+      .filter((route) => getUserOwnerKey({ email: route.ownerId }) !== getUserOwnerKey({ email: shipment.ownerId }))
+      .map((route) => ({
+        ...route,
+        relevanceScore: computeWeightedRouteRelevance({
+          shipmentOrigin: shipment.origin,
+          shipmentDestination: shipment.destination,
+          shipmentWeight: shipment.weight,
+          shipmentDate: shipment.date,
+          routeFrom: route.from,
+          routeTo: route.to,
+          routeAvailable: route.available,
+          routeAvailableCity: route.availableCity,
+          routeDeparture: route.departure,
+          routePostType: route.postType,
+        }),
+      }))
+      .sort((a, b) => b.relevanceScore - a.relevanceScore)
+
+    return candidates[0] || null
+  }
+
   return (
     <>
       <h1 className="text-3xl font-bold text-foreground">{shipmentsTitle}</h1>
@@ -2354,6 +2568,18 @@ function ShipmentsSection({
                 routeItems={routeItems}
                 ownershipTag={shipmentViewScope === 'mine' ? 'My Post' : 'Community'}
                 isReadOnly={shipmentViewScope === 'community'}
+                showInvite={shipmentViewScope === 'community'}
+                onInvite={shipmentViewScope === 'community'
+                  ? () => {
+                      contactShipper(shipment, 'community_shipment')
+                    }
+                  : undefined}
+                inviteSent={shipmentViewScope === 'community'
+                  ? (() => {
+                      return isInvitationSent('community_shipment', shipment.id)
+                    })()
+                  : false}
+                inviteDisabled={false}
                 onStatusChange={() => advanceShipmentStatus(shipment.id)}
                 onDelete={() => deleteShipment(shipment.id)}
                 onToggleDetails={() => toggleShipmentDetails(shipment.id)}
@@ -2386,9 +2612,13 @@ function RoutesSection({
   setRouteTypeFilter,
   routeOriginFilter,
   routeDestinationFilter,
+  routeCorridorOriginFilter,
+  routeCorridorDestinationFilter,
   routeCapacityFilter,
   setRouteOriginFilter,
   setRouteDestinationFilter,
+  setRouteCorridorOriginFilter,
+  setRouteCorridorDestinationFilter,
   setRouteCapacityFilter,
   deleteRoute,
   contactShipper,
@@ -2401,6 +2631,32 @@ function RoutesSection({
   const myRoutes = filteredRoutes.filter((route) => getUserOwnerKey({ email: route.ownerId }) === currentUserKey)
   const communityRoutes = filteredRoutes.filter((route) => getUserOwnerKey({ email: route.ownerId }) !== currentUserKey)
   const visibleRoutes = routeViewScope === 'mine' ? myRoutes : communityRoutes
+
+  const getBestShipmentForRoute = (route) => {
+    if (!route) return null
+
+    const candidates = (shipmentItems || [])
+      .filter((shipment) => shipment?.dbId)
+      .filter((shipment) => getUserOwnerKey({ email: shipment.ownerId }) !== getUserOwnerKey({ email: route.ownerId }))
+      .map((shipment) => ({
+        ...shipment,
+        relevanceScore: computeWeightedRouteRelevance({
+          shipmentOrigin: shipment.origin,
+          shipmentDestination: shipment.destination,
+          shipmentWeight: shipment.weight,
+          shipmentDate: shipment.date,
+          routeFrom: route.from,
+          routeTo: route.to,
+          routeAvailable: route.available,
+          routeAvailableCity: route.availableCity,
+          routeDeparture: route.departure,
+          routePostType: route.postType,
+        }),
+      }))
+      .sort((a, b) => b.relevanceScore - a.relevanceScore)
+
+    return candidates[0] || null
+  }
 
   return (
     <>
@@ -2445,11 +2701,33 @@ function RoutesSection({
             className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
           />
         </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+          <WilayaSelector
+            label={tr(uiLanguage, 'Route corridor origin', 'Origine du corridor')}
+            value={routeCorridorOriginFilter}
+            onChange={(nextValue) => {
+              setRouteCorridorOriginFilter(nextValue)
+              if (routeCorridorDestinationFilter) {
+                setRouteCorridorDestinationFilter('')
+              }
+            }}
+            placeholder={tr(uiLanguage, 'Select corridor origin', 'Selectionnez l origine du corridor')}
+          />
+          <WilayaSelector
+            label={tr(uiLanguage, 'Route corridor destination', 'Destination du corridor')}
+            value={routeCorridorDestinationFilter}
+            onChange={(nextValue) => setRouteCorridorDestinationFilter(nextValue)}
+            placeholder={tr(uiLanguage, 'Select corridor destination', 'Selectionnez la destination du corridor')}
+            referenceWilaya={routeCorridorOriginFilter}
+          />
+        </div>
         <div className="flex gap-3 mb-4">
           <button
             onClick={() => {
               setRouteOriginFilter('')
               setRouteDestinationFilter('')
+              setRouteCorridorOriginFilter('')
+              setRouteCorridorDestinationFilter('')
               setRouteCapacityFilter('')
               setRouteTypeFilter('all')
             }}
@@ -2508,6 +2786,17 @@ function RoutesSection({
                 shipmentItems={shipmentItems}
                 ownershipTag={routeViewScope === 'mine' ? tr(uiLanguage, 'My Post', 'Ma publication', '') : tr(uiLanguage, 'Community', 'Communaute', '')}
                 onDelete={routeViewScope === 'mine' ? () => deleteRoute(route.id) : undefined}
+                onContact={routeViewScope === 'community'
+                  ? () => {
+                      contactShipper(route, 'community_route')
+                    }
+                  : undefined}
+                contactSent={routeViewScope === 'community'
+                  ? (() => {
+                      return isInvitationSent('community_route', route.id)
+                    })()
+                  : false}
+                contactDisabled={false}
                 onContactRelevantShipment={routeViewScope === 'mine' ? (shipment) => contactShipper(shipment, 'route_relevant_shipment', route) : undefined}
                 isRelevantShipmentInvitationSent={routeViewScope === 'mine' ? (shipmentId) => isInvitationSent('route_relevant_shipment', shipmentId) : undefined}
                 onToggleDetails={() => toggleRouteDetails(route.id)}
@@ -2549,6 +2838,9 @@ function MatchingSection({
   const ownedRouteIds = useMemo(() => new Set(routeItems.map((route) => route.id)), [routeItems])
   const visibleInvitations = useMemo(
     () => receivedInvitations.filter((invitation) => {
+      // Direct invitations (community) should always be visible
+      if (invitation.direction === 'direct') return true
+      // Regular post invitations - check if it's for one of user's posts
       if (invitation.linkedPostType === 'shipment') return ownedShipmentIds.has(invitation.linkedPostId)
       if (invitation.linkedPostType === 'route') return ownedRouteIds.has(invitation.linkedPostId)
       return false
@@ -2563,6 +2855,10 @@ function MatchingSection({
     () => visibleInvitations.filter((invitation) => invitation.linkedPostType === 'route'),
     [visibleInvitations],
   )
+  const communityInvitations = useMemo(
+    () => visibleInvitations.filter((invitation) => invitation.direction === 'direct'),
+    [visibleInvitations],
+  )
   const selectedInvitation = visibleInvitations.find((item) => item.id === selectedInvitationId) || null
   const linkedShipment = selectedInvitation?.linkedPostType === 'shipment'
     ? shipmentItems.find((shipment) => shipment.id === selectedInvitation.linkedPostId)
@@ -2571,16 +2867,14 @@ function MatchingSection({
     ? routeItems.find((route) => route.id === selectedInvitation.linkedPostId)
     : null
 
-  const senderShipment = selectedInvitation
-    ? (allShipmentItems || []).find((shipment) => shipment.dbId === selectedInvitation.deliveryPostDbId)
+  // Find sender's post
+  const senderShipment = selectedInvitation?.senderPostType === 'shipment'
+    ? (allShipmentItems || []).find((shipment) => shipment.id === selectedInvitation.senderPostId)
+    : null
+  const senderRoute = selectedInvitation?.senderPostType === 'route'
+    ? (allRouteItems || []).find((route) => route.id === selectedInvitation.senderPostId)
     : null
 
-  const senderRoute = selectedInvitation
-    ? (allRouteItems || []).find((route) => route.dbId === selectedInvitation.availabilityPostDbId)
-    : null
-
-  const inviterPostType = selectedInvitation?.linkedPostType === 'shipment' ? 'route' : 'shipment'
-  const inviterPost = inviterPostType === 'route' ? senderRoute : senderShipment
   const isAcceptedAvailabilityOnlyRecipient = Boolean(
     selectedInvitation
     && selectedInvitation.status === 'accepted'
@@ -2672,6 +2966,30 @@ function MatchingSection({
               )}
             </div>
 
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{t('Community Invitations', 'Invitations de la communaute')}</p>
+              {communityInvitations.length > 0 ? communityInvitations.map((invitation) => (
+                <button
+                  key={invitation.id}
+                  onClick={() => handleSelectInvitation(invitation.id)}
+                  className={`w-full text-left p-4 rounded-lg border transition-colors ${selectedInvitationId === invitation.id ? 'border-primary bg-primary/5' : 'border-border bg-muted hover:bg-muted/80'}`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-foreground">{invitation.id}</p>
+                    <span className={`text-[11px] px-2 py-1 rounded-full font-semibold ${
+                      invitation.status === 'accepted' ? 'bg-green-100 text-green-700' : invitation.status === 'declined' ? 'bg-red-100 text-red-700' : invitation.status === 'expired' ? 'bg-slate-100 text-slate-700' : 'bg-amber-100 text-amber-700'
+                    }`}>
+                      {invitation.status}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">{t('From', 'De')}: {invitation.senderName}</p>
+                  <p className="text-xs text-muted-foreground mt-1">{invitation.receivedAt}</p>
+                </button>
+              )) : (
+                <p className="text-xs text-muted-foreground">{t('No community invitations.', 'Aucune invitation de communaute.')}</p>
+              )}
+            </div>
+
             {visibleInvitations.length === 0 && (
               <p className="text-sm text-muted-foreground">{t('No invitations received on your posts.', 'Aucune invitation recue sur vos publications.')}</p>
             )}
@@ -2684,7 +3002,7 @@ function MatchingSection({
                   <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
                     <div>
                       <p className="text-sm font-semibold text-foreground">{t('Invitation details', 'Details de l invitation')}</p>
-                      <p className="text-xs text-muted-foreground mt-1">{selectedInvitation.id} {t('received at', 'recue a')} {selectedInvitation.receivedAt}</p>
+                      <p className="text-xs text-foreground mt-1">{selectedInvitation.id} {t('received at', 'recue a')} {selectedInvitation.receivedAt}</p>
                     </div>
                     <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
                       selectedInvitation.status === 'accepted'
@@ -2696,16 +3014,84 @@ function MatchingSection({
                       {selectedInvitation.status}
                     </span>
                   </div>
-                  <p className="text-sm text-muted-foreground">{selectedInvitation.message}</p>
+                  <p className="text-sm text-foreground">{selectedInvitation.message}</p>
                   <p className="text-sm text-foreground mt-2">
                     {selectedInvitation.linkedPostType === 'shipment'
                       ? t('You were invited for your post', 'Vous avez ete invite pour votre publication')
                       : t('You were invited for your post', 'Vous avez ete invite pour votre publication')}
                     {' '}<span className="font-semibold">{selectedInvitation.linkedPostId}</span>
-                    {' '}{t('from', 'depuis')}{' '}
-                    <span className="font-semibold">{inviterPost?.id || t('unknown post', 'publication inconnue')}</span>.
+                    {'. '}
+                    {t('Invited by', 'Invite par')} <span className="font-semibold text-foreground">{selectedInvitation.senderName || t('Unknown sender', 'Invitant inconnu')}</span>.
                   </p>
                 </div>
+
+                {senderShipment && (
+                  <div className="rounded-xl border border-border bg-background p-4">
+                    <p className="text-sm font-semibold text-foreground mb-3">{t('Post from inviter', 'Publication de l invitant')}</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                      <div className="rounded-lg bg-muted p-3 border border-border">
+                        <p className="text-xs text-foreground">{t('Post ID', 'ID publication')}</p>
+                        <p className="font-medium text-foreground mt-1">{senderShipment.id}</p>
+                      </div>
+                      <div className="rounded-lg bg-muted p-3 border border-border">
+                        <p className="text-xs text-foreground">{t('Product', 'Produit')}</p>
+                        <p className="font-medium text-foreground mt-1">{senderShipment.itemName || 'N/A'}</p>
+                      </div>
+                      <div className="rounded-lg bg-muted p-3 border border-border">
+                        <p className="text-xs text-foreground">{t('Departure city', 'Ville de depart')}</p>
+                        <p className="font-medium text-foreground mt-1">{senderShipment.origin}</p>
+                      </div>
+                      <div className="rounded-lg bg-muted p-3 border border-border">
+                        <p className="text-xs text-foreground">{t('Destination city', 'Ville de destination')}</p>
+                        <p className="font-medium text-foreground mt-1">{senderShipment.destination}</p>
+                      </div>
+                      <div className="rounded-lg bg-muted p-3 border border-border">
+                        <p className="text-xs text-foreground">{t('Weight', 'Poids')}</p>
+                        <p className="font-medium text-foreground mt-1">{senderShipment.weight}</p>
+                      </div>
+                      <div className="rounded-lg bg-muted p-3 border border-border">
+                        <p className="text-xs text-foreground">{t('Date', 'Date')}</p>
+                        <p className="font-medium text-foreground mt-1">{senderShipment.date}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {senderRoute && (
+                  <div className="rounded-xl border border-border bg-background p-4">
+                    <p className="text-sm font-semibold text-foreground mb-3">{t('Post from inviter', 'Publication de l invitant')}</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                      <div className="rounded-lg bg-muted p-3 border border-border">
+                        <p className="text-xs text-foreground">{t('Post ID', 'ID publication')}</p>
+                        <p className="font-medium text-foreground mt-1">{senderRoute.id}</p>
+                      </div>
+                      <div className="rounded-lg bg-muted p-3 border border-border">
+                        <p className="text-xs text-foreground">{t('From', 'De')}</p>
+                        <p className="font-medium text-foreground mt-1">{senderRoute.from}</p>
+                      </div>
+                      <div className="rounded-lg bg-muted p-3 border border-border">
+                        <p className="text-xs text-foreground">{t('To', 'A')}</p>
+                        <p className="font-medium text-foreground mt-1">{senderRoute.to}</p>
+                      </div>
+                      <div className="rounded-lg bg-muted p-3 border border-border">
+                        <p className="text-xs text-foreground">{t('Capacity', 'Capacite')}</p>
+                        <p className="font-medium text-foreground mt-1">{senderRoute.capacity}</p>
+                      </div>
+                      <div className="rounded-lg bg-muted p-3 border border-border md:col-span-2">
+                        <p className="text-xs text-foreground">{t('Vehicles', 'Vehicules')}</p>
+                        <p className="font-medium text-foreground mt-1">{formatVehicleAllocationSummary(senderRoute.vehicleAllocation, senderRoute.capacity)}</p>
+                      </div>
+                      <div className="rounded-lg bg-muted p-3 border border-border">
+                        <p className="text-xs text-foreground">{t('Departure', 'Depart')}</p>
+                        <p className="font-medium text-foreground mt-1">{senderRoute.departure}</p>
+                      </div>
+                      <div className="rounded-lg bg-muted p-3 border border-border">
+                        <p className="text-xs text-foreground">{t('Driver', 'Conducteur')}</p>
+                        <p className="font-medium text-foreground mt-1">{senderRoute.driverName}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {linkedShipment && (
                   <div className="rounded-xl border border-border bg-background p-4">
@@ -2793,95 +3179,6 @@ function MatchingSection({
                       </div>
                     </div>
                   )
-                )}
-
-                {selectedInvitation?.linkedPostType === 'shipment' && senderRoute && (
-                  <div className="rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-lg shadow-slate-900/20">
-                    <p className="text-sm font-semibold text-white mb-3">{t('Inviter source post (trucker)', 'Publication source de l invitant (transporteur)')}</p>
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 text-sm">
-                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
-                        <p className="text-xs text-slate-400">{t('Post ID', 'ID publication')}</p>
-                        <p className="font-medium text-white mt-1">{senderRoute.id}</p>
-                      </div>
-                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
-                        <p className="text-xs text-slate-400">{t('Post type', 'Type de publication')}</p>
-                        <p className="font-medium text-white mt-1">{senderRoute.postType === 'availability_only' ? t('Availability only', 'Disponibilite seulement') : t('Full route', 'Trajet complet')}</p>
-                      </div>
-                      {senderRoute.postType === 'availability_only' ? (
-                        <div className="rounded-lg bg-slate-800 p-3 border border-slate-700 md:col-span-2 xl:col-span-2">
-                          <p className="text-xs text-sky-300 font-semibold">{t('Available city', 'Ville disponible')}</p>
-                          <p className="font-medium text-white mt-1">{senderRoute.availableCity || senderRoute.from || t('N/A', 'N/A')}</p>
-                        </div>
-                      ) : (
-                        <>
-                          <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
-                            <p className="text-xs text-slate-400">Departure city</p>
-                            <p className="font-medium text-white mt-1">{senderRoute.from}</p>
-                          </div>
-                          <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
-                            <p className="text-xs text-slate-400">Destination city</p>
-                            <p className="font-medium text-white mt-1">{senderRoute.to}</p>
-                          </div>
-                        </>
-                      )}
-                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
-                        <p className="text-xs text-slate-400">{t('Capacity', 'Capacite')}</p>
-                        <p className="font-medium text-white mt-1">{formatWeightKg(senderRoute.capacity)}</p>
-                      </div>
-                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
-                        <p className="text-xs text-slate-400">{t('Available', 'Disponible')}</p>
-                        <p className="font-medium text-white mt-1">{formatWeightKg(senderRoute.available)}</p>
-                      </div>
-                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
-                        <p className="text-xs text-slate-400">{t('Date', 'Date')}</p>
-                        <p className="font-medium text-white mt-1">{senderRoute.departure || t('N/A', 'N/A')}</p>
-                      </div>
-                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
-                        <p className="text-xs text-slate-400">{t('Driver', 'Conducteur')}</p>
-                        <p className="font-medium text-white mt-1">{senderRoute.driverName || t('Unknown driver', 'Conducteur inconnu')}</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {selectedInvitation?.linkedPostType === 'route' && senderShipment && (
-                  <div className="rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-lg shadow-slate-900/20">
-                    <p className="text-sm font-semibold text-white mb-3">{t('Inviter source post (client)', 'Publication source de l invitant (client)')}</p>
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 text-sm">
-                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
-                        <p className="text-xs text-slate-400">{t('Post ID', 'ID publication')}</p>
-                        <p className="font-medium text-white mt-1">{senderShipment.id}</p>
-                      </div>
-                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
-                        <p className="text-xs text-slate-400">{t('Product', 'Produit')}</p>
-                        <p className="font-medium text-white mt-1">{senderShipment.itemName || 'N/A'}</p>
-                      </div>
-                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
-                        <p className="text-xs text-slate-400">Departure city</p>
-                        <p className="font-medium text-white mt-1">{senderShipment.origin}</p>
-                      </div>
-                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
-                        <p className="text-xs text-slate-400">Destination city</p>
-                        <p className="font-medium text-white mt-1">{senderShipment.destination}</p>
-                      </div>
-                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
-                        <p className="text-xs text-slate-400">{t('Weight', 'Poids')}</p>
-                        <p className="font-medium text-white mt-1">{formatWeightKg(senderShipment.weight)}</p>
-                      </div>
-                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
-                        <p className="text-xs text-slate-400">{t('Volume', 'Volume')}</p>
-                        <p className="font-medium text-white mt-1">{formatVolumeM3(senderShipment.capacity)}</p>
-                      </div>
-                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700">
-                        <p className="text-xs text-slate-400">{t('Date', 'Date')}</p>
-                        <p className="font-medium text-white mt-1">{senderShipment.date || t('N/A', 'N/A')}</p>
-                      </div>
-                      <div className="rounded-lg bg-slate-800 p-3 border border-slate-700 md:col-span-2 xl:col-span-3">
-                        <p className="text-xs text-slate-400">{t('Description', 'Description')}</p>
-                        <p className="font-medium text-white mt-1">{senderShipment.description || t('N/A', 'N/A')}</p>
-                      </div>
-                    </div>
-                  </div>
                 )}
 
                 {!linkedShipment && !linkedRoute && (
@@ -4348,6 +4645,77 @@ function normalizeRouteText(value) {
     .trim()
 }
 
+const WILAYA_ALIASES = {
+  algeria: 'alger',
+  algiers: 'alger',
+  'algiers city': 'alger',
+  taref: 'el tarf',
+  'el taref': 'el tarf',
+  "m'sila": 'm sila',
+  msila: 'm sila',
+  "el m'ghair": 'el mghair',
+  mghair: 'el mghair',
+  meniaa: 'el meniaa',
+}
+
+let WILAYA_CANONICAL_BY_VARIANT = null
+
+function buildWilayaCanonicalVariantIndex() {
+  const index = new Map()
+
+  const registerVariant = (variant, canonical) => {
+    const key = normalizeRouteText(variant)
+    if (!key) return
+    if (!index.has(key)) index.set(key, canonical)
+  }
+
+  const registerCanonicalName = (name) => {
+    const canonical = normalizeRouteText(name)
+    if (!canonical) return
+
+    registerVariant(canonical, canonical)
+    registerVariant(canonical.replace(/\s+/g, ''), canonical)
+
+    const tokens = canonical.split(' ').filter(Boolean)
+    if (tokens.length > 1) {
+      const withoutEl = tokens.filter((token) => token !== 'el').join(' ')
+      registerVariant(withoutEl, canonical)
+      registerVariant(withoutEl.replace(/\s+/g, ''), canonical)
+    }
+
+    if (canonical.startsWith('el ')) {
+      const noLeadingEl = canonical.slice(3)
+      registerVariant(noLeadingEl, canonical)
+      registerVariant(noLeadingEl.replace(/\s+/g, ''), canonical)
+    }
+  }
+
+  for (const [variant, canonical] of Object.entries(WILAYA_ALIASES)) {
+    registerVariant(variant, normalizeRouteText(canonical))
+  }
+
+  for (const node of WILAYA_ROUTE_GRAPH_NODES) {
+    registerCanonicalName(node.name)
+  }
+
+  return index
+}
+
+function normalizeWilayaName(value) {
+  const normalized = normalizeRouteText(value)
+  if (!normalized) return ''
+
+  if (!WILAYA_CANONICAL_BY_VARIANT) {
+    WILAYA_CANONICAL_BY_VARIANT = buildWilayaCanonicalVariantIndex()
+  }
+
+  return (
+    WILAYA_CANONICAL_BY_VARIANT.get(normalized)
+    || WILAYA_CANONICAL_BY_VARIANT.get(normalized.replace(/\s+/g, ''))
+    || normalized
+  )
+}
+
 function isMeaningfulRouteValue(value) {
   const normalized = normalizeRouteText(value)
   return Boolean(normalized) && !ROUTE_PLACEHOLDER_VALUES.has(normalized)
@@ -4368,6 +4736,266 @@ function getRouteWaypoints(routeFrom, routeVia, routeTo) {
   return waypoints.filter((value, index) => (
     waypoints.findIndex((candidate) => normalizeWilayaName(candidate) === normalizeWilayaName(value)) === index
   ))
+}
+
+const WILAYA_ROUTE_GRAPH_NODES = [
+  { id: 1, name: 'Adrar' },
+  { id: 2, name: 'Chlef' },
+  { id: 3, name: 'Laghouat' },
+  { id: 4, name: 'Oum El Bouaghi' },
+  { id: 5, name: 'Batna' },
+  { id: 6, name: 'Bejaia' },
+  { id: 7, name: 'Biskra' },
+  { id: 8, name: 'Bechar' },
+  { id: 9, name: 'Blida' },
+  { id: 10, name: 'Bouira' },
+  { id: 11, name: 'Tamanrasset' },
+  { id: 12, name: 'Tebessa' },
+  { id: 13, name: 'Tlemcen' },
+  { id: 14, name: 'Tiaret' },
+  { id: 15, name: 'Tizi Ouzou' },
+  { id: 16, name: 'Alger' },
+  { id: 17, name: 'Djelfa' },
+  { id: 18, name: 'Jijel' },
+  { id: 19, name: 'Setif' },
+  { id: 20, name: 'Saida' },
+  { id: 21, name: 'Skikda' },
+  { id: 22, name: 'Sidi Bel Abbes' },
+  { id: 23, name: 'Annaba' },
+  { id: 24, name: 'Guelma' },
+  { id: 25, name: 'Constantine' },
+  { id: 26, name: 'Medea' },
+  { id: 27, name: 'Mostaganem' },
+  { id: 28, name: 'M Sila' },
+  { id: 29, name: 'Mascara' },
+  { id: 30, name: 'Ouargla' },
+  { id: 31, name: 'Oran' },
+  { id: 32, name: 'El Bayadh' },
+  { id: 33, name: 'Illizi' },
+  { id: 34, name: 'Bordj Bou Arreridj' },
+  { id: 35, name: 'Boumerdes' },
+  { id: 36, name: 'El Tarf' },
+  { id: 37, name: 'Tindouf' },
+  { id: 38, name: 'Tissemsilt' },
+  { id: 39, name: 'El Oued' },
+  { id: 40, name: 'Khenchela' },
+  { id: 41, name: 'Souk Ahras' },
+  { id: 42, name: 'Tipaza' },
+  { id: 43, name: 'Mila' },
+  { id: 44, name: 'Ain Defla' },
+  { id: 45, name: 'Naama' },
+  { id: 46, name: 'Ain Temouchent' },
+  { id: 47, name: 'Ghardaia' },
+  { id: 48, name: 'Relizane' },
+  { id: 49, name: 'El Mghair' },
+  { id: 50, name: 'El Meniaa' },
+  { id: 51, name: 'Ouled Djellal' },
+  { id: 52, name: 'Bordj Badji Mokhtar' },
+  { id: 53, name: 'Beni Abbes' },
+  { id: 54, name: 'Timimoun' },
+  { id: 55, name: 'Touggourt' },
+  { id: 56, name: 'Djanet' },
+  { id: 57, name: 'In Salah' },
+  { id: 58, name: 'In Guezzam' },
+]
+
+const WILAYA_ROUTE_GRAPH_ADJ = {
+  1: [8, 52, 53, 54, 57],
+  2: [9, 14, 26, 27, 38, 44, 48],
+  3: [17, 26, 28, 47],
+  4: [5, 19, 25, 40, 43],
+  5: [4, 7, 12, 28, 40],
+  6: [10, 15, 18, 34],
+  7: [5, 17, 28, 30, 39, 51],
+  8: [1, 32, 37, 45, 53],
+  9: [2, 10, 16, 26, 42],
+  10: [6, 9, 15, 16, 26, 28, 34],
+  11: [30, 33, 50, 56, 57, 58],
+  12: [4, 5, 40, 41],
+  13: [14, 20, 22, 45, 46],
+  14: [2, 13, 17, 20, 26, 29, 32, 38],
+  15: [6, 9, 10, 16, 35],
+  16: [9, 10, 15, 26, 35, 42, 44],
+  17: [3, 7, 14, 26, 28, 32, 47],
+  18: [6, 21, 43],
+  19: [4, 6, 10, 28, 34, 43],
+  20: [13, 14, 22, 29, 32, 45],
+  21: [18, 23, 25, 43],
+  22: [13, 20, 27, 29, 31, 46, 48],
+  23: [21, 24, 36, 41],
+  24: [4, 21, 23, 25, 41, 43],
+  25: [4, 21, 24, 43],
+  26: [2, 3, 9, 10, 14, 16, 17, 28, 44],
+  27: [2, 22, 29, 31, 42, 46, 48],
+  28: [3, 5, 7, 10, 17, 19, 26, 34, 47, 51],
+  29: [13, 14, 20, 22, 27, 38, 48],
+  30: [7, 11, 33, 39, 47, 49, 50, 55],
+  31: [13, 22, 27, 42, 46],
+  32: [3, 8, 14, 17, 20, 45, 47, 50],
+  33: [11, 30, 39, 49, 55, 56],
+  34: [6, 10, 19, 28, 43, 44],
+  35: [10, 15, 16, 42, 44],
+  36: [23, 41],
+  37: [1, 8, 45, 53],
+  38: [2, 14, 29, 44, 48],
+  39: [7, 30, 33, 49, 51, 55],
+  40: [4, 5, 7, 12],
+  41: [12, 23, 24, 36, 43],
+  42: [9, 16, 27, 31, 35, 44, 46],
+  43: [4, 18, 19, 21, 24, 25, 34, 41],
+  44: [2, 10, 16, 26, 34, 35, 38, 42, 48],
+  45: [8, 13, 20, 32, 37, 46],
+  46: [13, 22, 27, 31, 42, 45],
+  47: [3, 17, 28, 30, 32, 50, 51],
+  48: [2, 22, 27, 29, 38, 44],
+  49: [7, 30, 33, 39, 51, 55],
+  50: [3, 11, 17, 30, 32, 47],
+  51: [7, 28, 39, 47, 49, 55],
+  52: [1, 8, 53, 57],
+  53: [1, 8, 37, 52, 54],
+  54: [1, 52, 53, 57],
+  55: [30, 33, 39, 49, 51],
+  56: [11, 33],
+  57: [1, 11, 50, 52, 54, 58],
+  58: [11, 57],
+}
+
+const WILAYA_ROUTE_NAME_BY_ID = WILAYA_ROUTE_GRAPH_NODES.reduce((acc, node) => {
+  acc[node.id] = normalizeWilayaName(node.name)
+  return acc
+}, {})
+
+const WILAYA_ROUTE_ID_BY_NAME = WILAYA_ROUTE_GRAPH_NODES.reduce((acc, node) => {
+  acc[normalizeWilayaName(node.name)] = node.id
+  return acc
+}, {})
+
+const WILAYA_ROUTE_PATH_CACHE = new Map()
+
+function resolveWilayaRouteName(value) {
+  const normalized = normalizeWilayaName(value)
+  if (!normalized) return ''
+  if (WILAYA_ROUTE_ID_BY_NAME[normalized]) return normalized
+
+  const matchKey = Object.keys(WILAYA_ROUTE_ID_BY_NAME).find((key) => (
+    key.includes(normalized) || normalized.includes(key)
+  ))
+
+  return matchKey || ''
+}
+
+function getShortestWilayaPathNames(startWilaya, endWilaya) {
+  const startName = resolveWilayaRouteName(startWilaya)
+  const endName = resolveWilayaRouteName(endWilaya)
+  if (!startName || !endName) return []
+
+  const cacheKey = `${startName}>${endName}`
+  if (WILAYA_ROUTE_PATH_CACHE.has(cacheKey)) return WILAYA_ROUTE_PATH_CACHE.get(cacheKey)
+
+  const startId = WILAYA_ROUTE_ID_BY_NAME[startName]
+  const endId = WILAYA_ROUTE_ID_BY_NAME[endName]
+  if (!startId || !endId) return []
+
+  if (startId === endId) {
+    const singleton = [startName]
+    WILAYA_ROUTE_PATH_CACHE.set(cacheKey, singleton)
+    return singleton
+  }
+
+  const queue = [startId]
+  const visited = new Set([startId])
+  const previous = {}
+
+  while (queue.length > 0) {
+    const current = queue.shift()
+    const neighbors = WILAYA_ROUTE_GRAPH_ADJ[current] || []
+
+    for (const next of neighbors) {
+      if (visited.has(next)) continue
+      visited.add(next)
+      previous[next] = current
+
+      if (next === endId) {
+        const pathIds = []
+        let cursor = endId
+        while (cursor !== undefined) {
+          pathIds.unshift(cursor)
+          cursor = previous[cursor]
+        }
+
+        const pathNames = pathIds
+          .map((id) => WILAYA_ROUTE_NAME_BY_ID[id])
+          .filter(Boolean)
+
+        WILAYA_ROUTE_PATH_CACHE.set(cacheKey, pathNames)
+        return pathNames
+      }
+
+      queue.push(next)
+    }
+  }
+
+  const fallback = [startName, endName]
+  WILAYA_ROUTE_PATH_CACHE.set(cacheKey, fallback)
+  return fallback
+}
+
+function doesPathContainSubPath(containerPath, targetPath) {
+  if (!Array.isArray(containerPath) || !Array.isArray(targetPath)) return false
+  if (containerPath.length === 0 || targetPath.length === 0) return false
+  if (targetPath.length > containerPath.length) return false
+
+  for (let start = 0; start <= containerPath.length - targetPath.length; start += 1) {
+    let matches = true
+    for (let offset = 0; offset < targetPath.length; offset += 1) {
+      if (containerPath[start + offset] !== targetPath[offset]) {
+        matches = false
+        break
+      }
+    }
+    if (matches) return true
+  }
+
+  return false
+}
+
+function routeContainsRequestedSegment(requestedFrom, requestedTo, routeFrom, routeTo) {
+  const requestedPath = getShortestWilayaPathNames(requestedFrom, requestedTo)
+  const routePath = getShortestWilayaPathNames(routeFrom, routeTo)
+
+  if (!requestedPath.length || !routePath.length) return false
+  return doesPathContainSubPath(routePath, requestedPath)
+}
+
+function routeCorridorMatchesRequestedSegment(requestedFrom, requestedTo, routeFrom, routeTo, routeVia = '') {
+  const requestedFromPoint = getWilayaPoint(requestedFrom)
+  const requestedToPoint = getWilayaPoint(requestedTo)
+  const routeFromPoint = getWilayaPoint(routeFrom)
+  const routeToPoint = getWilayaPoint(routeTo)
+  const routeWaypointNames = getRouteWaypoints(routeFrom, routeVia, routeTo)
+
+  if (!requestedFromPoint || !requestedToPoint || !routeFromPoint || !routeToPoint) return false
+
+  const requestedOriginProgress = getSegmentProjectionFactor(requestedFromPoint, routeFromPoint, routeToPoint)
+  const requestedDestinationProgress = getSegmentProjectionFactor(requestedToPoint, routeFromPoint, routeToPoint)
+
+  // Direction matters: keep only matches that move forward along the route axis.
+  if (requestedOriginProgress >= requestedDestinationProgress) return false
+
+  const requestedNames = [normalizeWilayaName(requestedFrom), normalizeWilayaName(requestedTo)]
+  const normalizedRouteNames = routeWaypointNames.map((value) => normalizeWilayaName(value))
+  const requestedOriginIndex = normalizedRouteNames.indexOf(requestedNames[0])
+  const requestedDestinationIndex = normalizedRouteNames.indexOf(requestedNames[1])
+
+  if (requestedOriginIndex !== -1 && requestedDestinationIndex !== -1) {
+    return requestedOriginIndex < requestedDestinationIndex
+  }
+
+  const distanceOriginToRoute = getDistancePointToSegmentKm(requestedFromPoint, routeFromPoint, routeToPoint)
+  const distanceDestinationToRoute = getDistancePointToSegmentKm(requestedToPoint, routeFromPoint, routeToPoint)
+  const averageCorridorDistance = (distanceOriginToRoute + distanceDestinationToRoute) / 2
+
+  return averageCorridorDistance <= 80
 }
 
 const WILAYA_COORDS = [
@@ -4430,19 +5058,6 @@ const WILAYA_COORDS = [
   { name: 'El Mghair', lat: 33.95, lon: 5.92 },
   { name: 'El Meniaa', lat: 30.57, lon: 2.88 },
 ]
-
-const WILAYA_ALIASES = {
-  algeria: 'alger',
-  algiers: 'alger',
-  "m'sila": 'm sila',
-  msila: 'm sila',
-  "el m'ghair": 'el mghair',
-}
-
-function normalizeWilayaName(value) {
-  const normalized = normalizeRouteText(value)
-  return WILAYA_ALIASES[normalized] || normalized
-}
 
 const WILAYA_COORDS_BY_NAME = WILAYA_COORDS.reduce((acc, wilaya) => {
   acc[normalizeWilayaName(wilaya.name)] = { lat: wilaya.lat, lon: wilaya.lon }
@@ -4638,7 +5253,7 @@ function computeWeightedRouteRelevance({
 }
 
 // Shipment Card Component
-function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, capacity, quantity, dimensions, category, description, date, status, type, photo, ownerName = '', ownershipTag = '', routeItems, onStatusChange, onDelete, onToggleDetails, showDetails, isReadOnly = false, showInvite = false, onInvite, inviteSent = false, inviteDisabled = false }) {
+function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, capacity, dimensions, category, description, date, status, type, photo, ownerName = '', ownershipTag = '', routeItems, onStatusChange, onDelete, onToggleDetails, showDetails, isReadOnly = false, showInvite = false, onInvite, inviteSent = false, inviteDisabled = false }) {
   const t = (en, fr, ar = en) => tr(uiLanguage, en, fr, ar)
   const [relevantRouteFilter, setRelevantRouteFilter] = useState('all')
   const statusActionLabel = getShipmentStatusActionLabel(status)
@@ -4756,7 +5371,6 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
         <div className="text-right">
           <span className="text-foreground font-medium block">{formatWeightKg(weight)}</span>
           {capacity && <span className="text-xs text-muted-foreground">{t('Dimensions', 'Dimensions')}: {formatVolumeM3(capacity)}</span>}
-          {quantity && <span className="text-xs text-muted-foreground">{t('Qty', 'Qte')}: {quantity}</span>}
         </div>
       </div>
 
@@ -4772,6 +5386,23 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
           />
         </div>
       )}
+
+      {showInvite && onInvite && !showDetails && (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            onInvite()
+          }}
+          disabled={inviteSent || inviteDisabled}
+          className={`mt-3 w-full px-3 py-2 text-xs font-medium rounded transition-colors ${(inviteSent || inviteDisabled) ? 'bg-slate-400 text-white cursor-default' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
+        >
+          {inviteSent
+            ? t('Invitation Sent', 'Invitation envoyee')
+            : t('Send Invitation', 'Envoyer une invitation')}
+        </button>
+      )}
       
       {showDetails && (
         <div className="mt-4 pt-4 border-t border-border space-y-2 animate-in fade-in">
@@ -4779,7 +5410,6 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
             <p className="text-xs text-muted-foreground">{t('Item', 'Article')}: <span className="text-foreground">{itemName || t('N/A', 'N/A')}</span></p>
             <p className="text-xs text-muted-foreground">{t('Weight', 'Poids')}: <span className="text-foreground">{formatWeightKg(weight)}</span></p>
             <p className="text-xs text-muted-foreground">{t('Dimensions', 'Dimensions')}: <span className="text-foreground">{capacity ? formatVolumeM3(capacity) : t('N/A', 'N/A')}</span></p>
-            <p className="text-xs text-muted-foreground">{t('Quantity', 'Quantite')}: <span className="text-foreground">{quantity || t('N/A', 'N/A')}</span></p>
             <p className="text-xs text-muted-foreground">{t('Category', 'Categorie')}: <span className="text-foreground">{typeLabel[shipmentCategory] || t('General', 'General')}</span></p>
             <p className="text-xs text-muted-foreground">{t('Dimensions', 'Dimensions')}: <span className="text-foreground">{dimensions || t('N/A', 'N/A')}</span></p>
             <p className="text-xs text-muted-foreground">{t('Route', 'Trajet')}: <span className="text-foreground">{origin} {t('to', 'vers')} {destination}</span></p>
@@ -4829,9 +5459,7 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
             >
               {inviteSent
                 ? t('Invitation Sent', 'Invitation envoyee')
-                : inviteDisabled
-                  ? t('Select source post first', 'Selectionnez d abord le post source')
-                  : t('Send Invitation', 'Envoyer une invitation')}
+                : t('Send Invitation', 'Envoyer une invitation')}
             </button>
           )}
           {!isReadOnly && (
@@ -4850,7 +5478,7 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
 }
 
 // Route Card Component
-function RouteCard({ uiLanguage, id, from, to, capacity, available, stops, departure, postType = 'full_route', availableCity = '', isLive = false, driverName = 'Unknown driver', currentStop = '', lastSeen = 'Offline', ownerName = '', ownershipTag = '', shipmentItems, onDelete, onContact, contactLabel = 'Send Invitation', contactSent = false, contactDisabled = false, onContactRelevantShipment, isRelevantShipmentInvitationSent, onToggleDetails, showDetails, showNestedRelevant = true }) {
+function RouteCard({ uiLanguage, id, from, to, capacity, available, departure, postType = 'full_route', availableCity = '', vehicleAllocation = [], isLive = false, driverName = 'Unknown driver', currentStop = '', lastSeen = 'Offline', ownerName = '', ownershipTag = '', shipmentItems, onDelete, onContact, contactLabel = 'Send Invitation', contactSent = false, contactDisabled = false, onContactRelevantShipment, isRelevantShipmentInvitationSent, onToggleDetails, showDetails, showNestedRelevant = true }) {
   const t = (en, fr, ar = en) => tr(uiLanguage, en, fr, ar)
   const capacityNum = parseFloat(capacity)
   const availableNum = parseFloat(available)
@@ -4927,6 +5555,9 @@ function RouteCard({ uiLanguage, id, from, to, capacity, available, stops, depar
           <span className="text-muted-foreground">{t('Capacity', 'Capacite')}: {formatWeightKg(capacity)}</span>
           <span className="text-foreground font-medium">{formatWeightKg(available)} {t('available', 'disponible')}</span>
         </div>
+        <div className="flex items-center justify-between text-xs gap-3">
+          <span className="text-muted-foreground">{t('Vehicles', 'Vehicules')}: {formatVehicleAllocationSummary(vehicleAllocation, capacity)}</span>
+        </div>
         <div className="w-full bg-border rounded-full h-2 overflow-hidden">
           <div
             className="h-full bg-gradient-to-r from-primary to-accent transition-all"
@@ -4942,9 +5573,7 @@ function RouteCard({ uiLanguage, id, from, to, capacity, available, stops, depar
         >
           {contactSent
             ? t('Invitation Sent', 'Invitation envoyee')
-            : contactDisabled
-              ? t('Select source post first', 'Selectionnez d abord le post source')
-              : contactLabel}
+            : contactLabel}
         </button>
       )}
 
@@ -4955,6 +5584,7 @@ function RouteCard({ uiLanguage, id, from, to, capacity, available, stops, depar
             <p className="text-xs text-muted-foreground">{t('Route', 'Trajet')}: <span className="text-foreground">{isAvailabilityOnly ? `${t('Available on', 'Disponible sur')} ${availableCity || from || t('N/A', 'N/A')}` : `${from} ${t('to', 'vers')} ${to}`}</span></p>
             <p className="text-xs text-muted-foreground">{t('Capacity', 'Capacite')}: <span className="text-foreground">{formatWeightKg(capacity)}</span></p>
             <p className="text-xs text-muted-foreground">{t('Available', 'Disponible')}: <span className="text-foreground">{formatWeightKg(available)}</span></p>
+            <p className="text-xs text-muted-foreground">{t('Vehicles', 'Vehicules')}: <span className="text-foreground">{formatVehicleAllocationSummary(vehicleAllocation, capacity)}</span></p>
             <p className="text-xs text-muted-foreground">{t('Driver', 'Conducteur')}: <span className="text-foreground">{driverName}</span></p>
             <p className="text-xs text-muted-foreground">{t('Departure', 'Depart')}: <span className="text-foreground">{departure}</span></p>
           </div>
@@ -5013,8 +5643,8 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
   const [isEditingShipment, setIsEditingShipment] = useState(false)
   const [isEditingRoute, setIsEditingRoute] = useState(false)
   const [isSavingEdit, setIsSavingEdit] = useState(false)
-  const [shipmentDraft, setShipmentDraft] = useState({ itemName: '', origin: '', destination: '', weight: '', capacity: '', quantity: '', date: '', category: 'general', description: '' })
-  const [routeDraft, setRouteDraft] = useState({ postType: 'full_route', from: '', to: '', capacity: '', stops: '', departure: '', availableCity: '' })
+  const [shipmentDraft, setShipmentDraft] = useState({ itemName: '', origin: '', destination: '', weight: '', capacity: '', date: '', category: 'general', description: '' })
+  const [routeDraft, setRouteDraft] = useState({ postType: 'full_route', from: '', to: '', capacity: '', vehicleCount: '1', vehicleAllocations: [''], departure: '', availableCity: '' })
 
   const selectedShipmentIsMine = selectedShipment
     ? getUserOwnerKey({ email: selectedShipment.ownerId }) === currentUserKey
@@ -5035,7 +5665,6 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
       destination: selectedShipment.destination || '',
       weight: selectedShipment.weight || '',
       capacity: selectedShipment.capacity || '',
-      quantity: selectedShipment.quantity || '1',
       date: selectedShipment.date || '',
       category: selectedShipment.category || selectedShipment.type || 'general',
       description: selectedShipment.description || '',
@@ -5045,12 +5674,16 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
   useEffect(() => {
     if (!selectedRoute) return
     setIsEditingRoute(false)
+    const selectedVehicleAllocations = normalizeVehicleAllocationRecords(selectedRoute.vehicleAllocation, selectedRoute.capacity)
     setRouteDraft({
       postType: selectedRoute.postType || 'full_route',
       from: selectedRoute.from || '',
       to: selectedRoute.to || '',
       capacity: selectedRoute.capacity || '',
-      stops: String(selectedRoute.stops ?? 0),
+      vehicleCount: String(selectedVehicleAllocations.length || 1),
+      vehicleAllocations: selectedVehicleAllocations.length > 0
+        ? selectedVehicleAllocations.map((entry) => String(entry.capacity ?? ''))
+        : [String(selectedRoute.capacity || '')],
       departure: selectedRoute.departure || '',
       availableCity: selectedRoute.availableCity || '',
     })
@@ -5133,9 +5766,12 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
     : []
 
   const visibleShipmentRelevantRoutes = selectedShipment
-    ? (relevantRouteFilter === 'live_truckers'
-      ? shipmentRelevantRoutes.filter(route => route.isLive)
-      : shipmentRelevantRoutes)
+    ? shipmentRelevantRoutes.filter((route) => {
+      if (relevantRouteFilter === 'live_truckers') return route.isLive
+      if (relevantRouteFilter === 'availability_only') return route.postType === 'availability_only'
+      if (relevantRouteFilter === 'full_route') return route.postType !== 'availability_only'
+      return true
+    })
     : []
 
   const visibleShipmentFullRoutes = selectedShipment
@@ -5220,10 +5856,6 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
                 <p className="text-sm font-semibold text-foreground mt-1">{selectedShipment.weight ? formatWeightKg(selectedShipment.weight) : t('N/A', 'N/A')}</p>
               </div>
               <div className="rounded-lg border border-border bg-muted p-3">
-                <p className="text-xs text-muted-foreground">{t('Quantity', 'Quantite')}</p>
-                <p className="text-sm font-semibold text-foreground mt-1">{selectedShipment.quantity || t('N/A', 'N/A')}</p>
-              </div>
-              <div className="rounded-lg border border-border bg-muted p-3">
                 <p className="text-xs text-muted-foreground">{t('Departure city', 'Ville de depart')}</p>
                 <p className="text-sm font-semibold text-foreground mt-1">{selectedShipment.origin}</p>
               </div>
@@ -5296,7 +5928,6 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
                   <input value={shipmentDraft.destination} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, destination: e.target.value }))} placeholder={t('Destination city', 'Ville de destination')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
                   <input value={shipmentDraft.weight} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, weight: e.target.value }))} placeholder={t('Weight (kg)', 'Poids (kg)')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
                   <input value={shipmentDraft.capacity} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, capacity: e.target.value }))} placeholder={t('Dimensions (m^3)', 'Dimensions (m^3)')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
-                  <input value={shipmentDraft.quantity} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, quantity: e.target.value }))} placeholder={t('Quantity', 'Quantite')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
                   <input value={shipmentDraft.date} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, date: e.target.value }))} placeholder={t('Delivery date', 'Date de livraison')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
                 </div>
                 <textarea value={shipmentDraft.description} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, description: e.target.value }))} placeholder={t('Description', 'Description')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm min-h-[80px]" />
@@ -5335,6 +5966,10 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
               <div className="rounded-lg border border-border bg-muted p-3">
                 <p className="text-xs text-muted-foreground">{t('Capacity', 'Capacite')}</p>
                 <p className="text-sm font-semibold text-foreground mt-1">{formatWeightKg(selectedRoute.capacity)}</p>
+              </div>
+              <div className="rounded-lg border border-border bg-muted p-3 md:col-span-2">
+                <p className="text-xs text-muted-foreground">{t('Vehicles', 'Vehicules')}</p>
+                <p className="text-sm font-semibold text-foreground mt-1">{formatVehicleAllocationSummary(selectedRoute.vehicleAllocation, selectedRoute.capacity)}</p>
               </div>
               <div className="rounded-lg border border-border bg-muted p-3">
                 <p className="text-xs text-muted-foreground">{t('Available', 'Disponible')}</p>
@@ -5375,8 +6010,52 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
                   <input value={routeDraft.from} onChange={(e) => setRouteDraft((prev) => ({ ...prev, from: e.target.value }))} placeholder={t('Departure city', 'Ville de depart')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
                   <input value={routeDraft.to} onChange={(e) => setRouteDraft((prev) => ({ ...prev, to: e.target.value }))} placeholder={t('Destination city', 'Ville de destination')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
                   <input value={routeDraft.capacity} onChange={(e) => setRouteDraft((prev) => ({ ...prev, capacity: e.target.value }))} placeholder={t('Capacity (kg)', 'Capacite (kg)')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
-                  <input value={routeDraft.stops} onChange={(e) => setRouteDraft((prev) => ({ ...prev, stops: e.target.value }))} placeholder={t('Stops', 'Arrets')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                  <input
+                    value={routeDraft.vehicleCount}
+                    onChange={(e) => {
+                      const nextCount = Math.max(1, Math.floor(parseNumericInput(e.target.value) || 1))
+                      setRouteDraft((prev) => ({
+                        ...prev,
+                        vehicleCount: String(nextCount),
+                        vehicleAllocations: resizeVehicleAllocationInputs(prev.vehicleAllocations, nextCount),
+                      }))
+                    }}
+                    type="number"
+                    min="1"
+                    placeholder={t('Vehicle count', 'Nombre de vehicules')}
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm"
+                    step="1"
+                  />
                   <input value={routeDraft.departure} onChange={(e) => setRouteDraft((prev) => ({ ...prev, departure: e.target.value }))} placeholder={t('Departure date', 'Date de depart')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                  <div className="md:col-span-2 space-y-3 rounded-lg border border-border bg-muted/30 p-3">
+                    <p className="text-xs text-muted-foreground">
+                      {t('Split the total capacity across the vehicles below. The sum must match the total capacity.', 'Repartissez la capacite totale entre les vehicules ci-dessous. La somme doit correspondre a la capacite totale.')}
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {routeDraft.vehicleAllocations.map((allocationValue, index) => (
+                        <div key={`route-edit-vehicle-${index}`}>
+                          <label className="block text-xs font-medium text-muted-foreground mb-2">{t(`Vehicle ${index + 1} capacity (kg)`, `Capacite vehicule ${index + 1} (kg)`)}</label>
+                          <input
+                            value={allocationValue}
+                            onChange={(e) => {
+                              const nextValue = e.target.value
+                              setRouteDraft((prev) => ({
+                                ...prev,
+                                vehicleAllocations: prev.vehicleAllocations.map((currentValue, currentIndex) => (
+                                  currentIndex === index ? nextValue : currentValue
+                                )),
+                              }))
+                            }}
+                            type="number"
+                            min="1"
+                            placeholder={t('e.g., 200', 'ex. 200')}
+                            className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm"
+                            step="1"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
                 <button
                   onClick={handleSaveRouteEdit}
@@ -5410,6 +6089,18 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
                 className={`px-2.5 py-1 rounded text-xs font-semibold transition-colors ${relevantRouteFilter === 'live_truckers' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-background/80'}`}
               >
                 {t('Live truckers', 'Transporteurs en direct')}
+              </button>
+              <button
+                onClick={() => setRelevantRouteFilter('availability_only')}
+                className={`px-2.5 py-1 rounded text-xs font-semibold transition-colors ${relevantRouteFilter === 'availability_only' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-background/80'}`}
+              >
+                {t('Availability only', 'Disponibilite seulement')}
+              </button>
+              <button
+                onClick={() => setRelevantRouteFilter('full_route')}
+                className={`px-2.5 py-1 rounded text-xs font-semibold transition-colors ${relevantRouteFilter === 'full_route' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-background/80'}`}
+              >
+                {t('Full route', 'Trajet complet')}
               </button>
             </div>
           )}
@@ -5463,11 +6154,11 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
                     </div>
 
                     <button
-                      onClick={() => contactShipper(route, 'route', selectedShipment)}
-                      disabled={isInvitationSent?.('route', route.id, selectedShipment?.id || 'none')}
-                      className={`w-full px-4 py-2 rounded-lg transition-colors text-sm font-medium ${isInvitationSent?.('route', route.id, selectedShipment?.id || 'none') ? 'bg-green-600 text-white cursor-default' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
+                      onClick={() => contactShipper(route, 'community_shipment', selectedShipment)}
+                      disabled={isInvitationSent?.('community_route', route?.id || 'none')}
+                      className={`w-full px-4 py-2 rounded-lg transition-colors text-sm font-medium ${isInvitationSent?.('community_route', route?.id || 'none') ? 'bg-green-600 text-white cursor-default' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
                     >
-                      {isInvitationSent?.('route', route.id, selectedShipment?.id || 'none') ? t('Invitation Sent', 'Invitation envoyee') : t('Send Invitation', 'Envoyer une invitation')}
+                      {isInvitationSent?.('community_route', route?.id || 'none') ? t('Invitation Sent', 'Invitation envoyee') : t('Send Invitation', 'Envoyer une invitation')}
                     </button>
                   </div>
                 )) : (
@@ -5525,11 +6216,11 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
                     </div>
 
                     <button
-                      onClick={() => contactShipper(route, 'route', selectedShipment)}
-                      disabled={isInvitationSent?.('route', route.id, selectedShipment?.id || 'none')}
-                      className={`w-full px-4 py-2 rounded-lg transition-colors text-sm font-medium ${isInvitationSent?.('route', route.id, selectedShipment?.id || 'none') ? 'bg-green-600 text-white cursor-default' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
+                      onClick={() => contactShipper(route, 'community_shipment', selectedShipment)}
+                      disabled={isInvitationSent?.('community_route', route?.id || 'none')}
+                      className={`w-full px-4 py-2 rounded-lg transition-colors text-sm font-medium ${isInvitationSent?.('community_route', route?.id || 'none') ? 'bg-green-600 text-white cursor-default' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
                     >
-                      {isInvitationSent?.('route', route.id, selectedShipment?.id || 'none') ? t('Invitation Sent', 'Invitation envoyee') : t('Send Invitation', 'Envoyer une invitation')}
+                      {isInvitationSent?.('community_route', route?.id || 'none') ? t('Invitation Sent', 'Invitation envoyee') : t('Send Invitation', 'Envoyer une invitation')}
                     </button>
                   </div>
                 )) : (
@@ -5569,11 +6260,11 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
               </div>
 
               <button
-                onClick={() => contactShipper(shipment, 'route_relevant_shipment', selectedRoute)}
-                disabled={isInvitationSent?.('route_relevant_shipment', shipment.id, selectedRoute?.id || 'none')}
-                className={`mt-3 w-full px-4 py-2 rounded-lg transition-colors text-sm font-medium ${isInvitationSent?.('route_relevant_shipment', shipment.id, selectedRoute?.id || 'none') ? 'bg-green-600 text-white cursor-default' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
+                onClick={() => contactShipper(shipment, 'community_route', selectedRoute)}
+                disabled={isInvitationSent?.('community_shipment', shipment?.id || 'none')}
+                className={`mt-3 w-full px-4 py-2 rounded-lg transition-colors text-sm font-medium ${isInvitationSent?.('community_shipment', shipment?.id || 'none') ? 'bg-green-600 text-white cursor-default' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
               >
-                {isInvitationSent?.('route_relevant_shipment', shipment.id, selectedRoute?.id || 'none') ? t('Invitation Sent', 'Invitation envoyee') : t('Send Invitation', 'Envoyer une invitation')}
+                {isInvitationSent?.('community_shipment', shipment?.id || 'none') ? t('Invitation Sent', 'Invitation envoyee') : t('Send Invitation', 'Envoyer une invitation')}
               </button>
             </div>
           ))}
