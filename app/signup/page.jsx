@@ -54,7 +54,7 @@ export default function SignupPage() {
 
     setIsLoading(true)
     try {
-      await discoverApiBaseUrl({ force: true })
+      await discoverApiBaseUrl()
       const response = await axios.post(
         getApiUrl("/user/auth/register"),
         {
@@ -65,8 +65,7 @@ export default function SignupPage() {
       )
 
       if (response.status === 200) {
-        alert("Account created successfully")
-        router.push("/login")
+        router.replace("/login")
       } else {
         console.error("Registration failed:", response.data)
         alert("Registration failed: " + (response.data.message || "Unknown error"))
@@ -82,11 +81,11 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="flex min-h-screen lg:h-screen lg:overflow-hidden">
+    <div className="flex min-h-screen xl:h-screen xl:overflow-hidden">
       <AuthLeftPanel />
 
       {/* Right Panel - Signup Form */}
-      <div className="flex flex-1 flex-col justify-center px-6 py-12 lg:ml-[41.666667vw] lg:px-16 xl:px-20 bg-background">
+      <div className="flex flex-1 flex-col justify-center px-5 sm:px-6 py-10 sm:py-12 xl:ml-[50vw] lg:px-12 xl:px-16 2xl:px-20 bg-background">
         <div className="mx-auto w-full max-w-lg">
           {/* Mobile Logo */}
           <div className="-mt-6 mb-2 flex justify-center lg:hidden">

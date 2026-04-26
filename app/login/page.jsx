@@ -77,7 +77,7 @@ export default function LoginPage() {
       <AuthLeftPanel />
 
       {/* Right Panel - Login Form */}
-      <div className="flex flex-1 flex-col justify-center px-6 py-12 lg:ml-[41.666667vw] lg:px-16 xl:px-24 bg-background">
+      <div className="flex flex-1 flex-col justify-center px-5 sm:px-6 py-10 sm:py-12 xl:ml-[50vw] lg:px-12 xl:px-20 2xl:px-24 bg-background">
         <div className="mx-auto w-full max-w-md">
           {/* Mobile Logo */}
           <div className="-mt-6 mb-2 lg:hidden flex justify-center">
@@ -187,7 +187,7 @@ export default function LoginPage() {
       </div>
 
       {notification && (
-        <div className="fixed right-4 top-4 z-50 max-w-sm animate-in fade-in slide-in-from-top-2 duration-200">
+        <div className="fixed right-2 top-2 sm:right-4 sm:top-4 z-50 w-[calc(100vw-1rem)] sm:w-auto max-w-sm animate-in fade-in slide-in-from-top-2 duration-200">
           <div
             className={`rounded-lg border px-4 py-3 text-sm shadow-lg ${notification.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-800"}`}
           >
