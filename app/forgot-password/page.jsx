@@ -94,7 +94,7 @@ export default function ForgotPasswordPage() {
     <div className="flex min-h-screen">
       <AuthLeftPanel />
 
-      <div className="flex flex-1 flex-col justify-center px-6 py-12 lg:ml-[41.666667vw] lg:px-16 xl:px-24 bg-background">
+      <div className="flex flex-1 flex-col justify-center px-5 sm:px-6 py-10 sm:py-12 xl:ml-[50vw] lg:px-12 xl:px-20 2xl:px-24 bg-background">
         <div className="mx-auto w-full max-w-md">
           <div className="-mt-6 mb-2 lg:hidden flex justify-center">
             <img src="/logo white.svg" alt="FI TRi9i" className="w-56" />

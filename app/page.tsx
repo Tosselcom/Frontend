@@ -115,9 +115,9 @@ function renderFeaturePreview(feature: FeatureCard) {
     case "shipment":
       return (
         <div className="relative min-h-[12rem] sm:min-h-[13rem] overflow-hidden rounded-[1.1rem] border border-border/70 bg-background/80">
-          <div className="flex h-full min-h-[inherit] gap-0">
+          <div className="flex h-full min-h-[inherit] flex-col sm:flex-row gap-0">
             {/* Left — form fields */}
-            <div className="flex flex-1 flex-col justify-center gap-3 p-5">
+            <div className="flex flex-1 flex-col justify-center gap-3 p-4 sm:p-5">
               <div className="flex items-center gap-2">
                 <div className="h-7 w-7 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
                   <span className="h-2 w-2 rounded-full bg-primary/60" />
@@ -139,8 +139,15 @@ function renderFeaturePreview(feature: FeatureCard) {
               <div className="mt-1 h-8 w-24 rounded-xl bg-primary/15" />
             </div>
 
+            {/* Mobile icon bridge */}
+            <div className="flex items-center justify-center pb-2 sm:hidden">
+              <div className="flex h-10 w-10 items-center justify-center rounded-[1rem] bg-primary/10 text-accent ring-1 ring-primary/20 shadow-[0_8px_20px_hsl(var(--primary)/0.14)]">
+                <Icon className="h-4 w-4" />
+              </div>
+            </div>
+
             {/* Center — icon divider */}
-            <div className="flex flex-col items-center justify-center gap-3 px-4">
+            <div className="hidden sm:flex flex-col items-center justify-center gap-3 px-4">
               <div className="h-12 w-px bg-border/60" />
               <div className="flex h-12 w-12 items-center justify-center rounded-[1.2rem] bg-primary/10 text-accent ring-1 ring-primary/20 shadow-[0_8px_20px_hsl(var(--primary)/0.14)]">
                 <Icon className="h-5 w-5" />
@@ -149,7 +156,7 @@ function renderFeaturePreview(feature: FeatureCard) {
             </div>
 
             {/* Right — shipment summary card */}
-            <div className="flex flex-1 flex-col justify-center gap-3 p-5">
+            <div className="flex flex-1 flex-col justify-center gap-3 p-4 sm:p-5 pt-2 sm:pt-5">
               <div className="rounded-[1.1rem] border border-border/70 bg-card p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
                 <div className="mb-3 flex items-center justify-between">
                   <div className="h-2.5 w-16 rounded-full bg-border" />
@@ -314,7 +321,7 @@ export default function HomePage() {
 
       <LogisticsHero />
 
-      <section id="about-us" className="relative overflow-hidden bg-muted py-20 lg:py-28">
+      <section id="about-us" className="scroll-mt-24 relative overflow-hidden bg-muted py-20 lg:py-28">
         <div className="pointer-events-none absolute inset-0 opacity-60">
           <div className="absolute inset-0 bg-[linear-gradient(to_right,hsl(var(--border)/0.32)_1px,transparent_1px),linear-gradient(to_bottom,hsl(var(--border)/0.32)_1px,transparent_1px)] bg-[size:32px_32px]" />
           <div className="absolute right-0 top-0 h-72 w-72 bg-primary/10 blur-[110px]" />
@@ -354,10 +361,10 @@ export default function HomePage() {
                     </div>
 
                     <div className="flex flex-1 flex-col justify-end px-1 pb-1">
-                      <h3 className={`${feature.titleSize} mb-3 text-balance font-bold uppercase tracking-[0.08em] text-card-foreground`}>
+                      <h3 className={`${feature.titleSize} mb-3 text-balance break-words font-bold uppercase tracking-[0.08em] text-card-foreground`}>
                         {feature.title}
                       </h3>
-                      <p className={`text-sm leading-7 text-muted-foreground sm:text-[0.96rem] ${feature.bodyWidth ?? "max-w-none"}`}>
+                      <p className={`text-sm leading-7 break-words text-muted-foreground sm:text-[0.96rem] ${feature.bodyWidth ?? "max-w-none"}`}>
                         {feature.desc}
                       </p>
                     </div>

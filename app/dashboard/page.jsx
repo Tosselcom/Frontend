@@ -1798,7 +1798,7 @@ export default function DashboardPage() {
   )
 
   return (
-    <div className="flex h-screen bg-background p-2.5 sm:p-4 lg:py-5 lg:px-8 xl:px-10 gap-3 sm:gap-4 lg:gap-5">
+    <div className="flex min-h-[100svh] bg-background p-2.5 sm:p-4 lg:py-5 lg:px-8 xl:px-10 gap-3 sm:gap-4 lg:gap-5">
       {/* Mobile Sidebar */}
       {sidebarOpen && (
         <div className="fixed inset-0 z-20 lg:hidden">
@@ -1845,7 +1845,7 @@ export default function DashboardPage() {
                     {/* <p className="text-[10px] uppercase tracking-[0.24em] text-slate-500 font-semibold mb-1">
                       {tr(uiLanguage, 'Brand Slogan', 'Slogan de marque')}
                     </p> */}
-                    <p className="text-sm lg:text-base font-semibold tracking-tight text-slate-900 leading-tight whitespace-nowrap">
+                    <p className="text-sm lg:text-base font-semibold tracking-tight text-slate-900 leading-tight">
                       <span className="bg-gradient-to-r from-cyan-600 via-primary to-sky-700 bg-clip-text text-transparent">Connect</span> the right load to the right truck
                     </p>
                   </div>
@@ -2318,7 +2318,7 @@ export default function DashboardPage() {
       {/* Shipment Creation Modal */}
       {showShipmentModal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 py-6"
           onClick={closeShipmentModal}
         >
           <div
@@ -2611,7 +2611,7 @@ function OverviewSection({
             {priorityActions.map((item) => (
               <a key={item.id} href={item.href} className="flex items-center justify-between gap-3 rounded-lg border border-border p-3 hover:bg-muted transition-colors">
                 <p className="text-sm font-medium text-foreground">{item.label}</p>
-                <span className={`text-[11px] px-2.5 py-1 rounded-full font-semibold whitespace-nowrap ${item.stateTone}`}>{item.state}</span>
+                <span className={`text-[11px] px-2.5 py-1 rounded-full font-semibold text-right ${item.stateTone}`}>{item.state}</span>
               </a>
             ))}
           </div>
@@ -4210,7 +4210,7 @@ function SettingsSection({ uiLanguage, onLanguagePreview, user, onUserUpdate, pu
   return (
     <>
       {saveToast && (
-        <div className="fixed top-5 right-5 z-[80] w-72 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-900 shadow-lg p-3 animate-in fade-in slide-in-from-top duration-200">
+        <div className="fixed top-3 right-3 z-[80] w-[calc(100vw-1.5rem)] max-w-72 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-900 shadow-lg p-3 animate-in fade-in slide-in-from-top duration-200 sm:top-5 sm:right-5 sm:w-72">
           <p className="text-sm font-semibold">{saveToast.title}</p>
           <p className="text-xs mt-1">{t('Saved at', 'Enregistre a', '  ')} {saveToast.time}</p>
         </div>

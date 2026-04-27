@@ -55,6 +55,14 @@
   }
   body {
     @apply bg-background text-foreground;
+    overflow-x: clip;
+  }
+
+  img,
+  svg,
+  video,
+  canvas {
+    max-width: 100%;
   }
 }
 

@@ -27,7 +27,7 @@ function XIcon() {
 
 export default function Footer() {
   return (
-    <footer id="contact" className="bg-secondary border-t border-secondary-foreground/10 pt-12 pb-6">
+    <footer id="contact" className="scroll-mt-24 bg-secondary border-t border-secondary-foreground/10 pt-12 pb-6">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-8">
           <div>
@@ -78,7 +78,7 @@ export default function Footer() {
             <ul className="space-y-2.5">
               {contactLinks.map((item) => (
                 <li key={item.label}>
-                  <a href={item.href} className={textLinkClass}>
+                  <a href={item.href} className={`${textLinkClass} break-all`}>
                     {item.label}
                   </a>
                 </li>

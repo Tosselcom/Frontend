@@ -56,14 +56,13 @@ export default function Navbar() {
         {isOpen && (
           <div className="md:hidden pb-4 border-t border-secondary/10 mt-2 pt-4">
             <div className="flex flex-col gap-3">
-              <Link href="/" className="text-sm text-secondary/70 hover:text-secondary px-2 py-1.5 transition-colors">Home</Link>
-              <Link href="/#about-us" className="text-sm text-secondary/70 hover:text-secondary px-2 py-1.5 transition-colors">About us</Link>
-              <Link href="/#guide" className="text-sm text-secondary/70 hover:text-secondary px-2 py-1.5 transition-colors">Guide</Link>
-              <Link href="/#contact" className="text-sm text-secondary/70 hover:text-secondary px-2 py-1.5 transition-colors">Contact</Link>
-              <div className="flex items-center gap-3 pt-2">
-                <Link href="/login" className="flex-1 text-center rounded-lg px-4 py-2.5 text-sm font-medium text-secondary border border-secondary/20 hover:bg-secondary/10 transition-all">Sign in</Link>
-                <span className="h-6 w-px bg-secondary/20" aria-hidden="true" />
-                <Link href="/signup" className="flex-1 text-center rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-all">Get Started</Link>
+              <Link onClick={() => setIsOpen(false)} href="/" className="text-sm text-secondary/70 hover:text-secondary px-2 py-1.5 transition-colors">Home</Link>
+              <Link onClick={() => setIsOpen(false)} href="/#about-us" className="text-sm text-secondary/70 hover:text-secondary px-2 py-1.5 transition-colors">About us</Link>
+              <Link onClick={() => setIsOpen(false)} href="/#guide" className="text-sm text-secondary/70 hover:text-secondary px-2 py-1.5 transition-colors">Guide</Link>
+              <Link onClick={() => setIsOpen(false)} href="/#contact" className="text-sm text-secondary/70 hover:text-secondary px-2 py-1.5 transition-colors">Contact</Link>
+              <div className="grid grid-cols-1 gap-2 pt-2 sm:grid-cols-2">
+                <Link onClick={() => setIsOpen(false)} href="/login" className="text-center rounded-lg px-4 py-2.5 text-sm font-medium text-secondary border border-secondary/20 hover:bg-secondary/10 transition-all">Sign in</Link>
+                <Link onClick={() => setIsOpen(false)} href="/signup" className="text-center rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-all">Get Started</Link>
               </div>
             </div>
           </div>
