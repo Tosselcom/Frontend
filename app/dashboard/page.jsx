@@ -348,6 +348,9 @@ function resolveDbId(postId, explicitDbId) {
 }
 
 function mapDeliveryPostFromDb(row) {
+  const resolvedOwnerEmail = row.creator_email || row.ownerEmail || String(row.user_id || '')
+  const resolvedOwnerName = row.creator_name || row.ownerName || row.ownerEmail || 'Unknown user'
+
   return {
     id: `SHP-DB-${row.id}`,
     dbId: row.id,
@@ -364,9 +367,10 @@ function mapDeliveryPostFromDb(row) {
     date: row.deliveryDate || formatDateDisplay(row.created_at),
     status: 'posted',
     statusHistory: [{ status: 'posted', at: row.created_at || new Date().toISOString() }],
-    ownerId: row.ownerEmail || String(row.user_id || ''),
+    ownerType: row.creator_type || row.ownerType || 'user',
+    ownerId: resolvedOwnerEmail,
     ownerDbId: Number(row.user_id) || null,
-    ownerName: row.ownerName || row.ownerEmail || 'Unknown user',
+    ownerName: resolvedOwnerName,
   }
 }
 
@@ -377,6 +381,8 @@ function mapAvailabilityPostFromDb(row) {
   const departureLabel = isAvailabilityOnly
     ? (interval.start && interval.end ? `${interval.start} to ${interval.end}` : 'Flexible')
     : (row.date || formatDateDisplay(row.created_at))
+  const resolvedOwnerEmail = row.creator_email || row.ownerEmail || String(row.user_id || '')
+  const resolvedOwnerName = row.creator_name || row.ownerName || row.ownerEmail || 'Unknown user'
 
   return {
     id: `ROUTE-DB-${row.id}`,
@@ -394,16 +400,38 @@ function mapAvailabilityPostFromDb(row) {
     vehicleAllocation,
     vehicleCount: vehicleAllocation.length,
     isLive: false,
-    driverName: row.ownerName || row.ownerEmail || 'Unknown user',
+    driverName: resolvedOwnerName,
     currentStop: '',
-    ownerId: row.ownerEmail || String(row.user_id || ''),
+    ownerType: row.creator_type || row.ownerType || 'user',
+    ownerId: resolvedOwnerEmail,
     ownerDbId: Number(row.user_id) || null,
-    ownerName: row.ownerName || row.ownerEmail || 'Unknown user',
+    ownerName: resolvedOwnerName,
   }
 }
 
 function getUserOwnerKey(userValue) {
-  return String(userValue?.email || userValue?.name || '').trim().toLowerCase()
+  const email = String(userValue?.email || userValue?.creator_email || userValue?.ownerId || '').trim().toLowerCase()
+  const name = String(userValue?.name || userValue?.creator_name || userValue?.ownerName || '').trim().toLowerCase()
+  const userType = String(userValue?.userType || userValue?.creator_type || userValue?.ownerType || '').trim().toLowerCase()
+  const identity = email || name
+
+  if (userType === 'company') {
+    return `company:${identity}`
+  }
+
+  if (userType) {
+    return `${userType}:${identity}`
+  }
+
+  return identity
+}
+
+function getPostOwnerKey(postValue) {
+  return getUserOwnerKey({
+    email: postValue?.ownerId,
+    name: postValue?.ownerName,
+    userType: postValue?.ownerType,
+  })
 }
 
 function getInitialDashboardLanguage() {
@@ -575,14 +603,14 @@ export default function DashboardPage() {
 
   const myShipmentItems = useMemo(
     () => shipmentItems.filter((shipment) => (
-      getUserOwnerKey({ email: shipment.ownerId, name: shipment.ownerName }) === currentUserKey
+      getPostOwnerKey(shipment) === currentUserKey
     )),
     [shipmentItems, currentUserKey],
   )
 
   const myRouteItems = useMemo(
     () => routeItems.filter((route) => (
-      getUserOwnerKey({ email: route.ownerId, name: route.ownerName }) === currentUserKey
+      getPostOwnerKey(route) === currentUserKey
     )),
     [routeItems, currentUserKey],
   )
@@ -685,7 +713,7 @@ export default function DashboardPage() {
       const mappedRoutes = mergedAvailabilityRows.map(mapAvailabilityPostFromDb)
 
       const myRouteWithAvailableCity = mappedRoutes.find((route) => (
-        getUserOwnerKey({ email: route.ownerId, name: route.ownerName }) === currentUserKey
+        getPostOwnerKey(route) === currentUserKey
         && route.availableCity
       ))
 
@@ -945,6 +973,7 @@ export default function DashboardPage() {
         status: 'posted',
         statusHistory: [{ status: 'posted', at: new Date().toISOString() }],
         ownerId: currentUserKey,
+        ownerType: user?.userType || 'user',
         ownerName: user?.name || 'Current user',
       }
 
@@ -1068,6 +1097,7 @@ export default function DashboardPage() {
         driverName: user?.name || 'Unknown driver',
         currentStop: '',
         ownerId: currentUserKey,
+        ownerType: user?.userType || 'user',
         ownerName: user?.name || 'Current user',
       }
 
@@ -2730,8 +2760,8 @@ function ShipmentsSection({
   const shipmentsTitle = tr(uiLanguage, 'Delivery Posts - I Need a Delivery', 'Demandes de livraison - J ai besoin d une livraison', '  -   ')
   const [shipmentViewScope, setShipmentViewScope] = useState('mine')
 
-  const myShipments = filteredShipments.filter((shipment) => getUserOwnerKey({ email: shipment.ownerId }) === currentUserKey)
-  const communityShipments = filteredShipments.filter((shipment) => getUserOwnerKey({ email: shipment.ownerId }) !== currentUserKey)
+  const myShipments = filteredShipments.filter((shipment) => getPostOwnerKey(shipment) === currentUserKey)
+  const communityShipments = filteredShipments.filter((shipment) => getPostOwnerKey(shipment) !== currentUserKey)
   const visibleShipments = shipmentViewScope === 'mine' ? myShipments : communityShipments
 
   const getBestRouteForShipment = (shipment) => {
@@ -2739,7 +2769,7 @@ function ShipmentsSection({
 
     const candidates = (routeItems || [])
       .filter((route) => route?.dbId)
-      .filter((route) => getUserOwnerKey({ email: route.ownerId }) !== getUserOwnerKey({ email: shipment.ownerId }))
+      .filter((route) => getPostOwnerKey(route) !== getPostOwnerKey(shipment))
       .map((route) => ({
         ...route,
         relevanceScore: computeWeightedRouteRelevance({
@@ -2897,8 +2927,8 @@ function RoutesSection({
   const routesTitle = tr(uiLanguage, 'Availability Posts - I am Available', 'Publications disponibilite - Je suis disponible', '  -  ')
   const [routeViewScope, setRouteViewScope] = useState('mine')
 
-  const myRoutes = filteredRoutes.filter((route) => getUserOwnerKey({ email: route.ownerId }) === currentUserKey)
-  const communityRoutes = filteredRoutes.filter((route) => getUserOwnerKey({ email: route.ownerId }) !== currentUserKey)
+  const myRoutes = filteredRoutes.filter((route) => getPostOwnerKey(route) === currentUserKey)
+  const communityRoutes = filteredRoutes.filter((route) => getPostOwnerKey(route) !== currentUserKey)
   const visibleRoutes = routeViewScope === 'mine' ? myRoutes : communityRoutes
 
   const getBestShipmentForRoute = (route) => {
@@ -2906,7 +2936,7 @@ function RoutesSection({
 
     const candidates = (shipmentItems || [])
       .filter((shipment) => shipment?.dbId)
-      .filter((shipment) => getUserOwnerKey({ email: shipment.ownerId }) !== getUserOwnerKey({ email: route.ownerId }))
+      .filter((shipment) => getPostOwnerKey(shipment) !== getPostOwnerKey(route))
       .map((shipment) => ({
         ...shipment,
         relevanceScore: computeWeightedRouteRelevance({
@@ -5993,14 +6023,14 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
   const [routeDraft, setRouteDraft] = useState({ postType: 'full_route', from: '', to: '', capacity: '', vehicleCount: '1', vehicleAllocations: [createVehicleAllocationInput()], departure: '', availableCity: '', availabilityStartDate: '', availabilityEndDate: '' })
 
   const selectedShipmentIsMine = selectedShipment
-    ? getUserOwnerKey({ email: selectedShipment.ownerId }) === currentUserKey
+    ? getPostOwnerKey(selectedShipment) === currentUserKey
     : false
   const selectedRouteIsMine = selectedRoute
-    ? getUserOwnerKey({ email: selectedRoute.ownerId }) === currentUserKey
+    ? getPostOwnerKey(selectedRoute) === currentUserKey
     : false
   const canViewRelevantSection = selectedShipment ? selectedShipmentIsMine : selectedRouteIsMine
-  const myDetailRoutes = routeItems.filter((route) => getUserOwnerKey({ email: route.ownerId }) === currentUserKey)
-  const myDetailShipments = shipmentItems.filter((shipment) => getUserOwnerKey({ email: shipment.ownerId }) === currentUserKey)
+  const myDetailRoutes = routeItems.filter((route) => getPostOwnerKey(route) === currentUserKey)
+  const myDetailShipments = shipmentItems.filter((shipment) => getPostOwnerKey(shipment) === currentUserKey)
 
   useEffect(() => {
     if (!selectedShipment) return
@@ -6049,7 +6079,7 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
 
   const shipmentRelevantRoutes = selectedShipment
     ? routeItems
-      .filter((route) => getUserOwnerKey({ email: route.ownerId, name: route.ownerName }) !== currentUserKey)
+      .filter((route) => getPostOwnerKey(route) !== currentUserKey)
       .filter((route) => {
         if (route.postType === 'availability_only') {
           const availabilityCity = route.availableCity || route.from
