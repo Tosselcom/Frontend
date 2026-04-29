@@ -693,7 +693,7 @@ export default function DashboardPage() {
         axios.get(getApiUrl('/posts/availability/mine?includeArchived=true'), { headers }),
         axios.get(getApiUrl('/invitations/received'), { headers }),
         axios.get(getApiUrl('/invitations/sent'), { headers }),
-        axios.get(getApiUrl('/notifications'), { headers }),
+        axios.get(getApiUrl('/notifications'), { headers }).catch(() => ({ data: [] })),
       ])
 
       const allDeliveryRows = Array.isArray(allDeliveryRes.data) ? allDeliveryRes.data : []
