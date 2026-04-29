@@ -348,7 +348,9 @@ function resolveDbId(postId, explicitDbId) {
 }
 
 function mapDeliveryPostFromDb(row) {
-  const resolvedOwnerEmail = row.creator_email || row.ownerEmail || String(row.user_id || '')
+  const resolvedOwnerType = String(row.creator_type || row.user_type || row.ownerType || 'user').trim().toLowerCase() || 'user'
+  const resolvedOwnerId = Number(row.user_id) || null
+  const resolvedOwnerEmail = row.creator_email || row.ownerEmail || ''
   const resolvedOwnerName = row.creator_name || row.ownerName || row.ownerEmail || 'Unknown user'
 
   return {
@@ -367,9 +369,10 @@ function mapDeliveryPostFromDb(row) {
     date: row.deliveryDate || formatDateDisplay(row.created_at),
     status: 'posted',
     statusHistory: [{ status: 'posted', at: row.created_at || new Date().toISOString() }],
-    ownerType: row.creator_type || row.user_type || row.ownerType || 'user',
-    ownerId: resolvedOwnerEmail,
-    ownerDbId: Number(row.user_id) || null,
+    ownerType: resolvedOwnerType,
+    ownerId: resolvedOwnerId ? `${resolvedOwnerType}:${resolvedOwnerId}` : (resolvedOwnerEmail || resolvedOwnerName),
+    ownerDbId: resolvedOwnerId,
+    ownerEmail: resolvedOwnerEmail,
     ownerName: resolvedOwnerName,
   }
 }
@@ -381,7 +384,9 @@ function mapAvailabilityPostFromDb(row) {
   const departureLabel = isAvailabilityOnly
     ? (interval.start && interval.end ? `${interval.start} to ${interval.end}` : 'Flexible')
     : (row.date || formatDateDisplay(row.created_at))
-  const resolvedOwnerEmail = row.creator_email || row.ownerEmail || String(row.user_id || '')
+  const resolvedOwnerType = String(row.creator_type || row.user_type || row.ownerType || 'user').trim().toLowerCase() || 'user'
+  const resolvedOwnerId = Number(row.user_id) || null
+  const resolvedOwnerEmail = row.creator_email || row.ownerEmail || ''
   const resolvedOwnerName = row.creator_name || row.ownerName || row.ownerEmail || 'Unknown user'
 
   return {
@@ -402,33 +407,39 @@ function mapAvailabilityPostFromDb(row) {
     isLive: false,
     driverName: resolvedOwnerName,
     currentStop: '',
-    ownerType: row.creator_type || row.user_type || row.ownerType || 'user',
-    ownerId: resolvedOwnerEmail,
-    ownerDbId: Number(row.user_id) || null,
+    ownerType: resolvedOwnerType,
+    ownerId: resolvedOwnerId ? `${resolvedOwnerType}:${resolvedOwnerId}` : (resolvedOwnerEmail || resolvedOwnerName),
+    ownerDbId: resolvedOwnerId,
+    ownerEmail: resolvedOwnerEmail,
     ownerName: resolvedOwnerName,
   }
 }
 
 function getUserOwnerKey(userValue) {
-  const email = String(userValue?.email || userValue?.creator_email || userValue?.ownerId || '').trim().toLowerCase()
-  const name = String(userValue?.name || userValue?.creator_name || userValue?.ownerName || '').trim().toLowerCase()
   const userType = String(userValue?.userType || userValue?.creator_type || userValue?.user_type || userValue?.ownerType || '').trim().toLowerCase()
-  const identity = email || name
+  const numericId = Number(userValue?.id || userValue?.user_id || userValue?.ownerDbId)
+  const email = String(userValue?.email || userValue?.creator_email || userValue?.ownerEmail || '').trim().toLowerCase()
+  const name = String(userValue?.name || userValue?.creator_name || userValue?.ownerName || '').trim().toLowerCase()
 
-  if (userType === 'company') {
-    return `company:${identity}`
+  if (userType && Number.isFinite(numericId) && numericId > 0) {
+    return `${userType}:${numericId}`
   }
 
-  if (userType) {
-    return `${userType}:${identity}`
+  if (email) {
+    return userType ? `${userType}:${email}` : email
   }
 
-  return identity
+  if (name) {
+    return userType ? `${userType}:${name}` : name
+  }
+
+  return userType || ''
 }
 
 function getPostOwnerKey(postValue) {
   return getUserOwnerKey({
-    email: postValue?.ownerId,
+    id: postValue?.ownerDbId,
+    email: postValue?.ownerEmail || postValue?.ownerId,
     name: postValue?.ownerName,
     userType: postValue?.ownerType,
   })
