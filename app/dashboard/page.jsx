@@ -915,11 +915,13 @@ export default function DashboardPage() {
 
     try {
       setIsSubmittingShipment(true)
-      const apiUrl = getApiUrl('/posts/delivery')
+      const apiBaseUrl = await discoverApiBaseUrl()
+      const apiUrl = `${apiBaseUrl}/posts/delivery`
       console.log('API URL:', apiUrl)
       
       const response = await axios.post(apiUrl, payload, {
         headers: { token },
+        timeout: 15000,
       })
 
       console.log('Delivery post created successfully:', response.data)
@@ -1035,8 +1037,10 @@ export default function DashboardPage() {
     }
 
     try {
-      const response = await axios.post(getApiUrl('/posts/availability'), payload, {
+      const apiBaseUrl = await discoverApiBaseUrl()
+      const response = await axios.post(`${apiBaseUrl}/posts/availability`, payload, {
         headers: { token },
+        timeout: 15000,
       })
 
       const createdId = response.data?.postId
@@ -2116,15 +2120,15 @@ export default function DashboardPage() {
       
       {/* Route Creation Modal */}
       {showRouteModal && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 py-6">
-          <div className="bg-card border border-border rounded-xl p-6 shadow-lg max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 px-3 py-4 sm:py-6">
+          <div className="bg-card border border-border rounded-xl p-4 sm:p-6 shadow-lg w-full max-w-[min(100vw-1.5rem,36rem)] sm:max-w-md lg:max-w-lg mx-auto max-h-[92vh] overflow-y-auto animate-in fade-in zoom-in duration-200">
             <h2 className="text-2xl font-bold text-foreground mb-2">{tr(uiLanguage, 'Create Post', 'Creer une publication')}</h2>
             <p className="text-sm text-muted-foreground mb-4">{tr(uiLanguage, 'Choose ', 'Choisissez ')}<span className="font-semibold text-foreground">{tr(uiLanguage, 'Trucker - I am available', 'Transporteur - Je suis disponible')}</span>{tr(uiLanguage, ' and select the post type.', ' et selectionnez le type de publication.')}</p>
 
-            <div className="mb-4 grid grid-cols-2 gap-2 rounded-lg bg-muted p-1">
+            <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-lg bg-muted p-1">
               <button
                 onClick={() => setRoutePostType('full_route')}
-                className={`rounded-md px-3 py-2 text-xs font-semibold transition-colors ${
+                className={`rounded-md px-3 py-3 text-sm font-semibold transition-colors ${
                   routePostType === 'full_route' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-background/80'
                 }`}
               >
@@ -2132,7 +2136,7 @@ export default function DashboardPage() {
               </button>
               <button
                 onClick={() => setRoutePostType('availability_only')}
-                className={`rounded-md px-3 py-2 text-xs font-semibold transition-colors ${
+                className={`rounded-md px-3 py-3 text-sm font-semibold transition-colors ${
                   routePostType === 'availability_only' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-background/80'
                 }`}
               >
@@ -2186,7 +2190,31 @@ export default function DashboardPage() {
 
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Vehicle count', 'Nombre de vehicules')}</label>
-                <div className="flex items-center gap-2">
+                <div className="rounded-xl border border-border bg-muted/60 p-3 sm:p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs text-muted-foreground">{tr(uiLanguage, 'How many vehicles should split this capacity?', 'Combien de vehicules doivent se partager cette capacite ?')}</span>
+                    <span className="inline-flex min-w-10 items-center justify-center rounded-full bg-background px-3 py-1 text-sm font-semibold text-foreground border border-border">
+                      {formData.vehicleCount}
+                    </span>
+                  </div>
+
+                  <input
+                    type="range"
+                    min="1"
+                    max="10"
+                    value={Number(formData.vehicleCount) || 1}
+                    onChange={(e) => {
+                      const nextCount = Math.max(1, Math.floor(parseNumericInput(e.target.value) || 1))
+                      setFormData((prev) => ({
+                        ...prev,
+                        vehicleCount: String(nextCount),
+                        vehicleAllocations: resizeVehicleAllocationInputs(prev.vehicleAllocations, nextCount),
+                      }))
+                    }}
+                    className="w-full accent-[hsl(var(--primary))]"
+                  />
+
+                  <div className="flex items-stretch gap-2">
                   <button
                     type="button"
                     aria-label="Decrease vehicle count"
@@ -2199,7 +2227,7 @@ export default function DashboardPage() {
                         vehicleAllocations: resizeVehicleAllocationInputs(prev.vehicleAllocations, next),
                       }))
                     }}
-                    className="px-3 py-2 bg-card border border-border rounded-lg text-foreground hover:bg-card/80"
+                    className="min-w-12 px-4 py-3 bg-card border border-border rounded-lg text-foreground hover:bg-card/80"
                   >-</button>
 
                   <input
@@ -2216,7 +2244,7 @@ export default function DashboardPage() {
                         vehicleAllocations: resizeVehicleAllocationInputs(prev.vehicleAllocations, nextCount),
                       }))
                     }}
-                    className="w-20 text-center px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="flex-1 min-w-0 text-center px-3 py-3 bg-background border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                     step="1"
                   />
 
@@ -2232,18 +2260,19 @@ export default function DashboardPage() {
                         vehicleAllocations: resizeVehicleAllocationInputs(prev.vehicleAllocations, next),
                       }))
                     }}
-                    className="px-3 py-2 bg-card border border-border rounded-lg text-foreground hover:bg-card/80"
+                    className="min-w-12 px-4 py-3 bg-card border border-border rounded-lg text-foreground hover:bg-card/80"
                   >+</button>
+                  </div>
                 </div>
               </div>
 
-              <div className="space-y-3 rounded-lg border border-border bg-muted/40 p-3">
+              <div className="space-y-3 rounded-lg border border-border bg-muted/40 p-3 sm:p-4">
                 <p className="text-xs text-muted-foreground">
                   {tr(uiLanguage, 'Split the total capacity across the vehicles below. The sum must match the total capacity.', 'Repartissez la capacite totale entre les vehicules ci-dessous. La somme doit correspondre a la capacite totale.')}
                 </p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   {formData.vehicleAllocations.map((allocationValue, index) => (
-                    <div key={`vehicle-allocation-${index}`}>
+                    <div key={`vehicle-allocation-${index}`} className="rounded-lg border border-border bg-background/80 p-3">
                       <label className="block text-xs font-medium text-muted-foreground mb-2">{tr(uiLanguage, `Vehicle ${index + 1}`, `Vehicule ${index + 1}`)}</label>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <select
@@ -2277,7 +2306,7 @@ export default function DashboardPage() {
                               )),
                             }))
                           }}
-                          className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                          className="w-full px-3 py-3 bg-background border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                           step="1"
                         />
                       </div>
@@ -2326,20 +2355,20 @@ export default function DashboardPage() {
               )}
             </div>
             
-            <div className="flex gap-3 mt-6">
+            <div className="flex flex-col-reverse sm:flex-row gap-3 mt-6">
               <button
                 onClick={() => {
                   setShowRouteModal(false)
                   setRoutePostType('full_route')
                   setFormData({ from: '', to: '', capacity: '', vehicleCount: '1', vehicleAllocations: [createVehicleAllocationInput()], departure: '', availableCity: '', availabilityStartDate: '', availabilityEndDate: '' })
                 }}
-                className="flex-1 px-4 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 transition-colors font-medium"
+                className="flex-1 px-4 py-3 bg-muted text-foreground rounded-lg hover:bg-muted/80 transition-colors font-medium"
               >
                 {tr(uiLanguage, 'Cancel', 'Annuler')}
               </button>
               <button
                 onClick={handleSubmitRoute}
-                className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors font-medium"
+                className="flex-1 px-4 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors font-medium"
               >
                 {tr(uiLanguage, 'Post Availability', 'Publier la disponibilite')}
               </button>
