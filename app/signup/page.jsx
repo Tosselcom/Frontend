@@ -75,7 +75,7 @@ export default function SignupPage() {
           }
         )
 
-        if (response.status === 200) {
+        if (response.status >= 200 && response.status < 300) {
           router.replace("/login")
         } else {
           console.error("Registration failed:", response.data)
@@ -104,7 +104,7 @@ export default function SignupPage() {
           }
         )
 
-        if (response.status === 200) {
+        if (response.status >= 200 && response.status < 300) {
           router.replace("/login")
         } else {
           console.error("Company registration failed:", response.data)
