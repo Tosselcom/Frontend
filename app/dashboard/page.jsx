@@ -367,7 +367,7 @@ function mapDeliveryPostFromDb(row) {
     date: row.deliveryDate || formatDateDisplay(row.created_at),
     status: 'posted',
     statusHistory: [{ status: 'posted', at: row.created_at || new Date().toISOString() }],
-    ownerType: row.creator_type || row.ownerType || 'user',
+    ownerType: row.creator_type || row.user_type || row.ownerType || 'user',
     ownerId: resolvedOwnerEmail,
     ownerDbId: Number(row.user_id) || null,
     ownerName: resolvedOwnerName,
@@ -402,7 +402,7 @@ function mapAvailabilityPostFromDb(row) {
     isLive: false,
     driverName: resolvedOwnerName,
     currentStop: '',
-    ownerType: row.creator_type || row.ownerType || 'user',
+    ownerType: row.creator_type || row.user_type || row.ownerType || 'user',
     ownerId: resolvedOwnerEmail,
     ownerDbId: Number(row.user_id) || null,
     ownerName: resolvedOwnerName,
@@ -412,7 +412,7 @@ function mapAvailabilityPostFromDb(row) {
 function getUserOwnerKey(userValue) {
   const email = String(userValue?.email || userValue?.creator_email || userValue?.ownerId || '').trim().toLowerCase()
   const name = String(userValue?.name || userValue?.creator_name || userValue?.ownerName || '').trim().toLowerCase()
-  const userType = String(userValue?.userType || userValue?.creator_type || userValue?.ownerType || '').trim().toLowerCase()
+  const userType = String(userValue?.userType || userValue?.creator_type || userValue?.user_type || userValue?.ownerType || '').trim().toLowerCase()
   const identity = email || name
 
   if (userType === 'company') {
