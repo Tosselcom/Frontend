@@ -491,6 +491,10 @@ export default function DashboardPage() {
   const [user, setUser] = useState(getInitialUser)
   const [uiLanguage, setUiLanguage] = useState(getInitialDashboardLanguage)
   const currentUserKey = useMemo(() => getUserOwnerKey(user), [user])
+  const userSettingsStorageKey = useMemo(() => {
+    const scopedKey = currentUserKey || 'guest'
+    return `tosselcom.settings.v1:${scopedKey}`
+  }, [currentUserKey])
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
@@ -2126,11 +2130,13 @@ export default function DashboardPage() {
                 {/* Settings Section */}
                 {activeSection === 'settings' && (
                   <SettingsSection
+                    key={userSettingsStorageKey}
                     uiLanguage={uiLanguage}
                     onLanguagePreview={setUiLanguage}
                     user={user}
                     onUserUpdate={handleUserProfileUpdate}
                     pushNotification={pushNotification}
+                    storageKey={userSettingsStorageKey}
                   />
                 )}
 
@@ -4014,8 +4020,9 @@ function NotificationsSection({ uiLanguage, notifications, handleClearNotificati
 }
 
 // Settings Section Component
-function SettingsSection({ uiLanguage, onLanguagePreview, user, onUserUpdate, pushNotification }) {
-  const SETTINGS_STORAGE_KEY = 'tosselcom.settings.v1'
+function SettingsSection({ uiLanguage, onLanguagePreview, user, onUserUpdate, pushNotification, storageKey }) {
+  const SETTINGS_STORAGE_KEY = storageKey || 'tosselcom.settings.v1'
+  const LEGACY_SETTINGS_STORAGE_KEY = 'tosselcom.settings.v1'
   const t = (en, fr, ar = en) => tr(uiLanguage, en, fr, ar)
 
   const initialProfile = useMemo(
@@ -4067,8 +4074,34 @@ function SettingsSection({ uiLanguage, onLanguagePreview, user, onUserUpdate, pu
     }
   }, [SETTINGS_STORAGE_KEY])
 
+  const legacyStoredSettings = useMemo(() => {
+    if (typeof window === 'undefined') return null
+    if (SETTINGS_STORAGE_KEY === LEGACY_SETTINGS_STORAGE_KEY) return null
+
+    try {
+      const raw = window.localStorage.getItem(LEGACY_SETTINGS_STORAGE_KEY)
+      if (!raw) return null
+
+      const parsed = JSON.parse(raw)
+      const storedProfile = parsed?.profile || {}
+      const currentEmail = String(user?.email || '').trim().toLowerCase()
+      const currentName = String(user?.name || '').trim().toLowerCase()
+      const storedEmail = String(storedProfile?.email || '').trim().toLowerCase()
+      const storedName = String(storedProfile?.name || '').trim().toLowerCase()
+
+      if (storedEmail && storedEmail === currentEmail) return parsed
+      if (storedName && storedName === currentName) return parsed
+      return null
+    } catch {
+      window.localStorage.removeItem(LEGACY_SETTINGS_STORAGE_KEY)
+      return null
+    }
+  }, [SETTINGS_STORAGE_KEY, user?.email, user?.name])
+
+  const effectiveStoredSettings = storedSettings || legacyStoredSettings
+
   const [profile, setProfile] = useState(() => {
-    const merged = { ...initialProfile, ...(storedSettings?.profile || {}) }
+    const merged = { ...initialProfile, ...(effectiveStoredSettings?.profile || {}) }
     if (!merged.firstName && !merged.lastName) {
       const parsed = splitFullName(merged.name)
       merged.firstName = parsed.firstName
@@ -4077,9 +4110,9 @@ function SettingsSection({ uiLanguage, onLanguagePreview, user, onUserUpdate, pu
     merged.name = buildFullName(merged.firstName, merged.lastName) || merged.name || ''
     return merged
   })
-  const [notificationPrefs, setNotificationPrefs] = useState(() => ({ ...initialNotificationPrefs, ...(storedSettings?.notificationPrefs || {}) }))
+  const [notificationPrefs, setNotificationPrefs] = useState(() => ({ ...initialNotificationPrefs, ...(effectiveStoredSettings?.notificationPrefs || {}) }))
   const [appPrefs, setAppPrefs] = useState(() => {
-    const merged = { ...initialAppPrefs, ...(storedSettings?.appPrefs || {}) }
+    const merged = { ...initialAppPrefs, ...(effectiveStoredSettings?.appPrefs || {}) }
     if (merged.language !== 'French' && merged.language !== 'English') {
       merged.language = 'English'
     }
@@ -4096,22 +4129,22 @@ function SettingsSection({ uiLanguage, onLanguagePreview, user, onUserUpdate, pu
   const [photoFit, setPhotoFit] = useState('fill')
   const [photoOffset, setPhotoOffset] = useState({ x: 0, y: 0 })
   const [photoDragStart, setPhotoDragStart] = useState(null)
-  const [twoFactorEnabled, setTwoFactorEnabled] = useState(() => Boolean(storedSettings?.twoFactorEnabled))
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState(() => Boolean(effectiveStoredSettings?.twoFactorEnabled))
   const [exportRequestedAt, setExportRequestedAt] = useState('')
   const [settingsSavedAt, setSettingsSavedAt] = useState(() => storedSettings?.settingsSavedAt || '')
   const [saveToast, setSaveToast] = useState(null)
   const profilePhotoInputRef = useRef(null)
   const [savedSnapshot, setSavedSnapshot] = useState(() => ({
-    profile: { ...initialProfile, ...(storedSettings?.profile || {}) },
-    notificationPrefs: { ...initialNotificationPrefs, ...(storedSettings?.notificationPrefs || {}) },
+    profile: { ...initialProfile, ...(effectiveStoredSettings?.profile || {}) },
+    notificationPrefs: { ...initialNotificationPrefs, ...(effectiveStoredSettings?.notificationPrefs || {}) },
     appPrefs: {
       ...initialAppPrefs,
-      ...(storedSettings?.appPrefs || {}),
-      language: (storedSettings?.appPrefs?.language === 'French' || storedSettings?.appPrefs?.language === 'English')
-        ? storedSettings.appPrefs.language
+      ...(effectiveStoredSettings?.appPrefs || {}),
+      language: (effectiveStoredSettings?.appPrefs?.language === 'French' || effectiveStoredSettings?.appPrefs?.language === 'English')
+        ? effectiveStoredSettings.appPrefs.language
         : 'English',
     },
-    twoFactorEnabled: Boolean(storedSettings?.twoFactorEnabled),
+    twoFactorEnabled: Boolean(effectiveStoredSettings?.twoFactorEnabled),
   }))
 
   useEffect(() => {
