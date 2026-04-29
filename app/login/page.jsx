@@ -9,6 +9,7 @@ import AuthLeftPanel from "@/components/auth/auth-left-panel"
 import { discoverApiBaseUrl, getApiUrl } from "@/lib/api"
 export default function LoginPage() {
   const router = useRouter()
+  const [userType, setUserType] = useState("user") // "user" or "company"
   const [showPassword, setShowPassword] = useState(false)
   const [formData, setFormData] = useState({ email: "", password: "" })
   const [isLoading, setIsLoading] = useState(false)
@@ -29,8 +30,9 @@ export default function LoginPage() {
         discoverApiBaseUrl(),
         new Promise((resolve) => setTimeout(resolve, 1200)),
       ])
+      const endpoint = userType === "company" ? "/company/auth/login" : "/user/auth/login"
       const response = await axios.post(
-        getApiUrl("/user/auth/login"),
+        getApiUrl(endpoint),
         formData,
         { timeout: 8000 }
       )
@@ -40,7 +42,9 @@ export default function LoginPage() {
         const { token, user } = response.data
         sessionStorage.setItem("token", token)
         if (user) {
-          const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ").trim()
+          const fullName = userType === "company" 
+            ? user.company_name 
+            : [user.firstName, user.lastName].filter(Boolean).join(" ").trim()
           sessionStorage.setItem(
             "user",
             JSON.stringify({
@@ -48,6 +52,7 @@ export default function LoginPage() {
               name: fullName || user.email,
               email: user.email,
               role: "shared",
+              userType: userType,
             })
           )
         }
@@ -87,6 +92,32 @@ export default function LoginPage() {
           <div className="mb-8 text-center">
             <h2 className="text-3xl font-bold text-foreground tracking-tight">Welcome back</h2>
             <p className="mt-2 text-muted-foreground">Sign in to your account to continue</p>
+          </div>
+
+          {/* User Type Selection */}
+          <div className="mb-6 flex gap-3">
+            <button
+              type="button"
+              onClick={() => setUserType("user")}
+              className={`flex-1 py-3 px-4 rounded-lg font-medium transition-all text-sm ${
+                userType === "user"
+                  ? "bg-primary text-primary-foreground shadow-md"
+                  : "bg-card border border-input text-foreground hover:bg-card/80"
+              }`}
+            >
+              👤 Normal User
+            </button>
+            <button
+              type="button"
+              onClick={() => setUserType("company")}
+              className={`flex-1 py-3 px-4 rounded-lg font-medium transition-all text-sm ${
+                userType === "company"
+                  ? "bg-primary text-primary-foreground shadow-md"
+                  : "bg-card border border-input text-foreground hover:bg-card/80"
+              }`}
+            >
+              🏢 Company
+            </button>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
