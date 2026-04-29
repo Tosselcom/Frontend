@@ -2186,22 +2186,55 @@ export default function DashboardPage() {
 
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Vehicle count', 'Nombre de vehicules')}</label>
-                <input
-                  type="number"
-                  min="1"
-                  placeholder={tr(uiLanguage, 'e.g., 3', 'ex. 3')}
-                  value={formData.vehicleCount}
-                  onChange={(e) => {
-                    const nextCount = Math.max(1, Math.floor(parseNumericInput(e.target.value) || 1))
-                    setFormData((prev) => ({
-                      ...prev,
-                      vehicleCount: String(nextCount),
-                      vehicleAllocations: resizeVehicleAllocationInputs(prev.vehicleAllocations, nextCount),
-                    }))
-                  }}
-                  className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  step="1"
-                />
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    aria-label="Decrease vehicle count"
+                    onClick={() => {
+                      const current = Math.max(1, Math.floor(Number(formData.vehicleCount) || 1))
+                      const next = Math.max(1, current - 1)
+                      setFormData((prev) => ({
+                        ...prev,
+                        vehicleCount: String(next),
+                        vehicleAllocations: resizeVehicleAllocationInputs(prev.vehicleAllocations, next),
+                      }))
+                    }}
+                    className="px-3 py-2 bg-card border border-border rounded-lg text-foreground hover:bg-card/80"
+                  >-</button>
+
+                  <input
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    min="1"
+                    placeholder={tr(uiLanguage, 'e.g., 3', 'ex. 3')}
+                    value={formData.vehicleCount}
+                    onChange={(e) => {
+                      const nextCount = Math.max(1, Math.floor(parseNumericInput(e.target.value) || 1))
+                      setFormData((prev) => ({
+                        ...prev,
+                        vehicleCount: String(nextCount),
+                        vehicleAllocations: resizeVehicleAllocationInputs(prev.vehicleAllocations, nextCount),
+                      }))
+                    }}
+                    className="w-20 text-center px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    step="1"
+                  />
+
+                  <button
+                    type="button"
+                    aria-label="Increase vehicle count"
+                    onClick={() => {
+                      const current = Math.max(1, Math.floor(Number(formData.vehicleCount) || 1))
+                      const next = current + 1
+                      setFormData((prev) => ({
+                        ...prev,
+                        vehicleCount: String(next),
+                        vehicleAllocations: resizeVehicleAllocationInputs(prev.vehicleAllocations, next),
+                      }))
+                    }}
+                    className="px-3 py-2 bg-card border border-border rounded-lg text-foreground hover:bg-card/80"
+                  >+</button>
+                </div>
               </div>
 
               <div className="space-y-3 rounded-lg border border-border bg-muted/40 p-3">
@@ -6298,22 +6331,55 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
                   <input value={routeDraft.from} onChange={(e) => setRouteDraft((prev) => ({ ...prev, from: e.target.value }))} placeholder={t('Departure city', 'Ville de depart')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
                   <input value={routeDraft.to} onChange={(e) => setRouteDraft((prev) => ({ ...prev, to: e.target.value }))} placeholder={t('Destination city', 'Ville de destination')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
                   <input value={routeDraft.capacity} onChange={(e) => setRouteDraft((prev) => ({ ...prev, capacity: e.target.value }))} placeholder={t('Capacity (kg)', 'Capacite (kg)')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
-                  <input
-                    value={routeDraft.vehicleCount}
-                    onChange={(e) => {
-                      const nextCount = Math.max(1, Math.floor(parseNumericInput(e.target.value) || 1))
-                      setRouteDraft((prev) => ({
-                        ...prev,
-                        vehicleCount: String(nextCount),
-                        vehicleAllocations: resizeVehicleAllocationInputs(prev.vehicleAllocations, nextCount),
-                      }))
-                    }}
-                    type="number"
-                    min="1"
-                    placeholder={t('Vehicle count', 'Nombre de vehicules')}
-                    className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm"
-                    step="1"
-                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      aria-label="Decrease vehicle count"
+                      onClick={() => {
+                        const current = Math.max(1, Math.floor(Number(routeDraft.vehicleCount) || 1))
+                        const next = Math.max(1, current - 1)
+                        setRouteDraft((prev) => ({
+                          ...prev,
+                          vehicleCount: String(next),
+                          vehicleAllocations: resizeVehicleAllocationInputs(prev.vehicleAllocations, next),
+                        }))
+                      }}
+                      className="px-3 py-2 bg-card border border-border rounded-lg text-foreground hover:bg-card/80"
+                    >-</button>
+
+                    <input
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      min="1"
+                      value={routeDraft.vehicleCount}
+                      onChange={(e) => {
+                        const nextCount = Math.max(1, Math.floor(parseNumericInput(e.target.value) || 1))
+                        setRouteDraft((prev) => ({
+                          ...prev,
+                          vehicleCount: String(nextCount),
+                          vehicleAllocations: resizeVehicleAllocationInputs(prev.vehicleAllocations, nextCount),
+                        }))
+                      }}
+                      placeholder={t('Vehicle count', 'Nombre de vehicules')}
+                      className="w-20 text-center px-3 py-2 rounded-lg border border-border bg-card text-sm"
+                      step="1"
+                    />
+
+                    <button
+                      type="button"
+                      aria-label="Increase vehicle count"
+                      onClick={() => {
+                        const current = Math.max(1, Math.floor(Number(routeDraft.vehicleCount) || 1))
+                        const next = current + 1
+                        setRouteDraft((prev) => ({
+                          ...prev,
+                          vehicleCount: String(next),
+                          vehicleAllocations: resizeVehicleAllocationInputs(prev.vehicleAllocations, next),
+                        }))
+                      }}
+                      className="px-3 py-2 bg-card border border-border rounded-lg text-foreground hover:bg-card/80"
+                    >+</button>
+                  </div>
                   {routeDraft.postType === 'availability_only' ? (
                     <>
                       <input
