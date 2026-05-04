@@ -314,6 +314,19 @@ function formatVehicleAllocationSummary(vehicleAllocation, fallbackCapacity) {
     .join(', ')
 }
 
+function routeHasVehicleType(route, vehicleTypeFilter) {
+  const normalizedFilter = normalizeRouteText(vehicleTypeFilter)
+  if (!normalizedFilter) return false
+
+  const vehicleAllocations = Array.isArray(route?.vehicleAllocation) ? route.vehicleAllocation : []
+  return vehicleAllocations.some((entry) => {
+    const normalizedType = normalizeVehicleType(entry?.type || entry?.name || entry?.label)
+    const normalizedTypeText = normalizeRouteText(normalizedType)
+    const normalizedLabelText = normalizeRouteText(getVehicleTypeLabel(normalizedType))
+    return normalizedTypeText.includes(normalizedFilter) || normalizedLabelText.includes(normalizedFilter)
+  })
+}
+
 function getDialablePhone(rawPhone) {
   if (!rawPhone) return ''
   const normalized = String(rawPhone).replace(/[^\d+]/g, '').trim()
@@ -514,12 +527,17 @@ export default function DashboardPage() {
   const [routeTypeFilter, setRouteTypeFilter] = useState('all')
   const [shipmentOriginFilter, setShipmentOriginFilter] = useState('')
   const [shipmentDestinationFilter, setShipmentDestinationFilter] = useState('')
+  const [shipmentWilayaFilter, setShipmentWilayaFilter] = useState('')
   const [shipmentCapacityFilter, setShipmentCapacityFilter] = useState('')
+  const [shipmentCorridorOriginFilter, setShipmentCorridorOriginFilter] = useState('')
+  const [shipmentCorridorDestinationFilter, setShipmentCorridorDestinationFilter] = useState('')
   const [routeOriginFilter, setRouteOriginFilter] = useState('')
   const [routeDestinationFilter, setRouteDestinationFilter] = useState('')
+  const [routeWilayaFilter, setRouteWilayaFilter] = useState('')
   const [routeCorridorOriginFilter, setRouteCorridorOriginFilter] = useState('')
   const [routeCorridorDestinationFilter, setRouteCorridorDestinationFilter] = useState('')
   const [routeCapacityFilter, setRouteCapacityFilter] = useState('')
+  const [routeVehicleTypeFilter, setRouteVehicleTypeFilter] = useState('')
   const [detailView, setDetailView] = useState({ type: null, id: null })
   const realtimeSocketRef = useRef(null)
   const [showRouteModal, setShowRouteModal] = useState(false)
@@ -1790,64 +1808,142 @@ export default function DashboardPage() {
     }
   }
 
-  // Section-level filters
-  const filteredShipments = useMemo(() => 
-    shipmentItems.filter(item => {
-      const originMatches = !shipmentOriginFilter || item.origin.toLowerCase().includes(shipmentOriginFilter.toLowerCase())
-      const destinationMatches = !shipmentDestinationFilter || item.destination.toLowerCase().includes(shipmentDestinationFilter.toLowerCase())
-      const capacityMatches = !shipmentCapacityFilter || (parseFloat(item.capacity) || 0) <= parseFloat(shipmentCapacityFilter)
-      return originMatches && destinationMatches && capacityMatches
-    }), [shipmentItems, shipmentOriginFilter, shipmentDestinationFilter, shipmentCapacityFilter]
+  // Helper: Check if wilaya is on the route (explicit waypoint or within 30km)
+  const isWilayaOnRoute = (wilayaName, routeOrigin, routeDestination) => {
+    const normalizedWilaya = normalizeWilayaName(wilayaName)
+    if (!normalizedWilaya) return false
+    
+    const waypoints = getRouteWaypoints(routeOrigin, '', routeDestination)
+    const normalizedWaypoints = waypoints.map((value) => normalizeWilayaName(value))
+    
+    // Check if it's an explicit waypoint
+    if (normalizedWaypoints.includes(normalizedWilaya)) return true
+    
+    // Check if it's geographically close to the route (within 30km)
+    const wilayaPoint = getWilayaPoint(wilayaName)
+    const routeFromPoint = getWilayaPoint(routeOrigin)
+    const routeToPoint = getWilayaPoint(routeDestination)
+    
+    if (wilayaPoint && routeFromPoint && routeToPoint) {
+      const distance = getDistancePointToSegmentKm(wilayaPoint, routeFromPoint, routeToPoint)
+      return distance <= 30
+    }
+    
+    return false
+  }
+
+  const matchesPostFilters = (item, config) => {
+    const {
+      originFilterValue,
+      destinationFilterValue,
+      wilayaFilterValue,
+      corridorOriginFilterValue,
+      corridorDestinationFilterValue,
+      capacityFilterValue,
+      vehicleTypeFilterValue = '',
+      capacityComparator = 'lte',
+      typeMatches = true,
+      getOrigin,
+      getDestination,
+      getWaypoints,
+      getCapacity,
+      corridorSegmentValue = '',
+    } = config
+
+    const normalizedOriginFilter = normalizeRouteText(originFilterValue)
+    const normalizedDestinationFilter = normalizeRouteText(destinationFilterValue)
+    const normalizedWilayaFilter = normalizeWilayaName(wilayaFilterValue)
+    const normalizedCorridorOriginFilter = normalizeRouteText(corridorOriginFilterValue)
+    const normalizedCorridorDestinationFilter = normalizeRouteText(corridorDestinationFilterValue)
+    const hasOriginFilter = Boolean(normalizedOriginFilter)
+    const hasDestinationFilter = Boolean(normalizedDestinationFilter)
+    const hasWilayaFilter = Boolean(normalizedWilayaFilter)
+    const hasCorridorOriginFilter = Boolean(normalizedCorridorOriginFilter)
+    const hasCorridorDestinationFilter = Boolean(normalizedCorridorDestinationFilter)
+    const corridorFiltersActive = hasCorridorOriginFilter && hasCorridorDestinationFilter
+
+    const originValue = getOrigin(item)
+    const destinationValue = getDestination(item)
+    const waypoints = getWaypoints(item)
+    const normalizedWaypoints = waypoints.map((value) => normalizeWilayaName(value))
+
+    const originTextMatches = !hasOriginFilter || normalizeRouteText(originValue).includes(normalizedOriginFilter)
+    const destinationTextMatches = !hasDestinationFilter || normalizeRouteText(destinationValue).includes(normalizedDestinationFilter)
+    const wilayaMatches = !hasWilayaFilter || isWilayaOnRoute(wilayaFilterValue, originValue, destinationValue)
+
+    const corridorOriginTextMatches = !hasCorridorOriginFilter || normalizedWaypoints.includes(normalizedCorridorOriginFilter)
+    const corridorDestinationTextMatches = !hasCorridorDestinationFilter || normalizedWaypoints.includes(normalizedCorridorDestinationFilter)
+
+    const corridorMatches = corridorFiltersActive
+      && (
+        routeContainsRequestedSegment(corridorOriginFilterValue, corridorDestinationFilterValue, originValue, destinationValue)
+        || routeCorridorMatchesRequestedSegment(corridorOriginFilterValue, corridorDestinationFilterValue, originValue, destinationValue, corridorSegmentValue)
+      )
+
+    const corridorGeometryMatches = corridorFiltersActive
+      ? (corridorOriginTextMatches && corridorDestinationTextMatches) || corridorMatches
+      : true
+
+    const geometryMatches = hasOriginFilter && hasDestinationFilter
+      ? (originTextMatches && destinationTextMatches) || corridorMatches
+      : originTextMatches && destinationTextMatches
+
+    const numericCapacity = Number.parseFloat(getCapacity(item)) || 0
+    const numericCapacityFilter = Number.parseFloat(capacityFilterValue)
+    const capacityMatches = !capacityFilterValue || (
+      capacityComparator === 'gte'
+        ? numericCapacity > numericCapacityFilter
+        : numericCapacity <= numericCapacityFilter
+    )
+
+    const vehicleTypeMatches = !vehicleTypeFilterValue || routeHasVehicleType(item, vehicleTypeFilterValue)
+
+    return geometryMatches && corridorGeometryMatches && wilayaMatches && capacityMatches && vehicleTypeMatches && typeMatches
+  }
+
+  // Section-level filters (shipments: mirror availability/route filters + corridor support)
+  const filteredShipments = useMemo(
+    () => shipmentItems.filter((item) => matchesPostFilters(item, {
+      originFilterValue: shipmentOriginFilter,
+      destinationFilterValue: shipmentDestinationFilter,
+      wilayaFilterValue: shipmentWilayaFilter,
+      corridorOriginFilterValue: shipmentCorridorOriginFilter,
+      corridorDestinationFilterValue: shipmentCorridorDestinationFilter,
+      capacityFilterValue: shipmentCapacityFilter,
+      getOrigin: (post) => post.origin,
+      getDestination: (post) => post.destination,
+      getWaypoints: (post) => getRouteWaypoints(post.origin, '', post.destination),
+      getCapacity: (post) => post.capacity,
+    })),
+    [shipmentItems, shipmentOriginFilter, shipmentDestinationFilter, shipmentWilayaFilter, shipmentCorridorOriginFilter, shipmentCorridorDestinationFilter, shipmentCapacityFilter]
   )
 
-  const filteredRoutes = useMemo(() => 
-    routeItems.filter(item => {
-      const normalizedOriginFilter = normalizeRouteText(routeOriginFilter)
-      const normalizedDestinationFilter = normalizeRouteText(routeDestinationFilter)
-      const normalizedCorridorOriginFilter = normalizeRouteText(routeCorridorOriginFilter)
-      const normalizedCorridorDestinationFilter = normalizeRouteText(routeCorridorDestinationFilter)
-      const hasOriginFilter = Boolean(normalizedOriginFilter)
-      const hasDestinationFilter = Boolean(normalizedDestinationFilter)
-      const hasCorridorOriginFilter = Boolean(normalizedCorridorOriginFilter)
-      const hasCorridorDestinationFilter = Boolean(normalizedCorridorDestinationFilter)
-      const corridorFiltersActive = hasCorridorOriginFilter && hasCorridorDestinationFilter
-      const routeWaypoints = getRouteWaypoints(item.from, item.availableCity, item.to)
-      const normalizedRouteWaypoints = routeWaypoints.map((value) => normalizeWilayaName(value))
-
-      const originTextMatches = !hasOriginFilter || normalizeRouteText(item.from).includes(normalizedOriginFilter)
-      const destinationTextMatches = !hasDestinationFilter || normalizeRouteText(item.to).includes(normalizedDestinationFilter)
-
-      const corridorOriginTextMatches = !hasCorridorOriginFilter || normalizedRouteWaypoints.includes(normalizedCorridorOriginFilter)
-      const corridorDestinationTextMatches = !hasCorridorDestinationFilter || normalizedRouteWaypoints.includes(normalizedCorridorDestinationFilter)
-
-      const corridorMatches = corridorFiltersActive
-        && (
-          routeContainsRequestedSegment(routeCorridorOriginFilter, routeCorridorDestinationFilter, item.from, item.to)
-          || routeCorridorMatchesRequestedSegment(routeCorridorOriginFilter, routeCorridorDestinationFilter, item.from, item.to, item.availableCity)
-        )
-
-      const corridorGeometryMatches = corridorFiltersActive
-        ? (corridorOriginTextMatches && corridorDestinationTextMatches) || corridorMatches
-        : true
-
-      const routeGeometryMatches = hasOriginFilter && hasDestinationFilter
-        ? (originTextMatches && destinationTextMatches) || corridorMatches
-        : originTextMatches && destinationTextMatches
-
-      const capacityMatches = !routeCapacityFilter || (parseFloat(item.available) || 0) > parseFloat(routeCapacityFilter)
-
-      const typeMatches =
-        routeTypeFilter === 'all' ||
-        (routeTypeFilter === 'availability_only' && item.postType === 'availability_only') ||
-        (routeTypeFilter === 'full_route' && item.postType === 'full_route') ||
-        (routeTypeFilter === 'live_truckers' && item.isLive)
-
-      return routeGeometryMatches && corridorGeometryMatches && capacityMatches && typeMatches
-    }), [routeItems, routeOriginFilter, routeDestinationFilter, routeCorridorOriginFilter, routeCorridorDestinationFilter, routeCapacityFilter, routeTypeFilter]
+  const filteredRoutes = useMemo(
+    () => routeItems.filter((item) => matchesPostFilters(item, {
+      originFilterValue: routeOriginFilter,
+      destinationFilterValue: routeDestinationFilter,
+      wilayaFilterValue: routeWilayaFilter,
+      corridorOriginFilterValue: routeCorridorOriginFilter,
+      corridorDestinationFilterValue: routeCorridorDestinationFilter,
+      capacityFilterValue: routeCapacityFilter,
+      vehicleTypeFilterValue: routeVehicleTypeFilter,
+      capacityComparator: 'gte',
+      typeMatches:
+        routeTypeFilter === 'all'
+        || (routeTypeFilter === 'availability_only' && item.postType === 'availability_only')
+        || (routeTypeFilter === 'full_route' && item.postType === 'full_route')
+        || (routeTypeFilter === 'live_truckers' && item.isLive),
+      getOrigin: (post) => post.from,
+      getDestination: (post) => post.to,
+      getWaypoints: (post) => getRouteWaypoints(post.from, post.availableCity, post.to),
+      getCapacity: (post) => post.available,
+      corridorSegmentValue: item?.availableCity || '',
+    })),
+    [routeItems, routeOriginFilter, routeDestinationFilter, routeWilayaFilter, routeCorridorOriginFilter, routeCorridorDestinationFilter, routeCapacityFilter, routeVehicleTypeFilter, routeTypeFilter]
   )
 
   return (
-    <div className="flex min-h-[100svh] bg-background p-2.5 sm:p-4 lg:py-5 lg:px-8 xl:px-10 gap-3 sm:gap-4 lg:gap-5">
+    <div className="flex h-screen overflow-hidden bg-background p-2.5 sm:p-4 lg:py-5 lg:px-8 xl:px-10 gap-3 sm:gap-4 lg:gap-5">
       {/* Mobile Sidebar */}
       {sidebarOpen && (
         <div className="fixed inset-0 z-20 lg:hidden">
@@ -1865,7 +1961,7 @@ export default function DashboardPage() {
       )}
 
       {/* Desktop Sidebar */}
-      <div className="hidden lg:flex lg:w-64 lg:flex-col bg-secondary border border-border rounded-2xl overflow-hidden shadow-sm">
+      <div className="hidden lg:flex lg:w-64 lg:flex-col bg-secondary border border-border rounded-2xl overflow-hidden shadow-sm h-full">
         <DashboardSidebar
           role={role}
           uiLanguage={uiLanguage}
@@ -1876,7 +1972,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden bg-card border border-border rounded-2xl shadow-sm">
+      <div className="flex-1 flex flex-col overflow-y-auto bg-card border border-border rounded-2xl shadow-sm">
         {/* Header */}
         <header className="bg-card border-b border-border px-3.5 sm:px-7 lg:px-9 xl:px-10 py-3 sm:py-4.5 lg:py-5">
           <div className="flex items-center justify-between">
@@ -2061,9 +2157,15 @@ export default function DashboardPage() {
                     currentUserKey={currentUserKey}
                     shipmentOriginFilter={shipmentOriginFilter}
                     shipmentDestinationFilter={shipmentDestinationFilter}
+                    shipmentWilayaFilter={shipmentWilayaFilter}
+                    shipmentCorridorOriginFilter={shipmentCorridorOriginFilter}
+                    shipmentCorridorDestinationFilter={shipmentCorridorDestinationFilter}
                     shipmentCapacityFilter={shipmentCapacityFilter}
                     setShipmentOriginFilter={setShipmentOriginFilter}
                     setShipmentDestinationFilter={setShipmentDestinationFilter}
+                    setShipmentWilayaFilter={setShipmentWilayaFilter}
+                    setShipmentCorridorOriginFilter={setShipmentCorridorOriginFilter}
+                    setShipmentCorridorDestinationFilter={setShipmentCorridorDestinationFilter}
                     setShipmentCapacityFilter={setShipmentCapacityFilter}
                     advanceShipmentStatus={advanceShipmentStatus}
                     deleteShipment={deleteShipment}
@@ -2085,14 +2187,18 @@ export default function DashboardPage() {
                     setRouteTypeFilter={setRouteTypeFilter}
                     routeOriginFilter={routeOriginFilter}
                     routeDestinationFilter={routeDestinationFilter}
+                    routeWilayaFilter={routeWilayaFilter}
                     routeCorridorOriginFilter={routeCorridorOriginFilter}
                     routeCorridorDestinationFilter={routeCorridorDestinationFilter}
                     routeCapacityFilter={routeCapacityFilter}
+                    routeVehicleTypeFilter={routeVehicleTypeFilter}
                     setRouteOriginFilter={setRouteOriginFilter}
                     setRouteDestinationFilter={setRouteDestinationFilter}
+                    setRouteWilayaFilter={setRouteWilayaFilter}
                     setRouteCorridorOriginFilter={setRouteCorridorOriginFilter}
                     setRouteCorridorDestinationFilter={setRouteCorridorDestinationFilter}
                     setRouteCapacityFilter={setRouteCapacityFilter}
+                    setRouteVehicleTypeFilter={setRouteVehicleTypeFilter}
                     deleteRoute={deleteRoute}
                     contactShipper={contactShipper}
                     toggleRouteDetails={toggleRouteDetails}
@@ -2764,9 +2870,15 @@ function ShipmentsSection({
   currentUserKey,
   shipmentOriginFilter,
   shipmentDestinationFilter,
+  shipmentWilayaFilter,
+  shipmentCorridorOriginFilter,
+  shipmentCorridorDestinationFilter,
   shipmentCapacityFilter,
   setShipmentOriginFilter,
   setShipmentDestinationFilter,
+  setShipmentWilayaFilter,
+  setShipmentCorridorOriginFilter,
+  setShipmentCorridorDestinationFilter,
   setShipmentCapacityFilter,
   advanceShipmentStatus,
   deleteShipment,
@@ -2827,7 +2939,7 @@ function ShipmentsSection({
             </span>
           )}
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-5">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
           <input
             type="text"
             placeholder={tr(uiLanguage, 'Search by departure city', 'Rechercher par ville de depart', '   ')}
@@ -2849,10 +2961,41 @@ function ShipmentsSection({
             onChange={(e) => setShipmentCapacityFilter(e.target.value)}
             className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
           />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+          <WilayaSelector
+            label={tr(uiLanguage, 'Filter by Wilaya', 'Filtrer par Wilaya')}
+            value={shipmentWilayaFilter}
+            onChange={(nextValue) => setShipmentWilayaFilter(nextValue)}
+            placeholder={tr(uiLanguage, 'Select wilaya', 'Selectionnez une wilaya')}
+          />
+          <WilayaSelector
+            label={tr(uiLanguage, 'Route corridor origin', 'Origine du corridor')}
+            value={shipmentCorridorOriginFilter}
+            onChange={(nextValue) => {
+              setShipmentCorridorOriginFilter(nextValue)
+              if (shipmentCorridorDestinationFilter) {
+                setShipmentCorridorDestinationFilter('')
+              }
+            }}
+            placeholder={tr(uiLanguage, 'Select corridor origin', 'Selectionnez l origine du corridor')}
+          />
+          <WilayaSelector
+            label={tr(uiLanguage, 'Route corridor destination', 'Destination du corridor')}
+            value={shipmentCorridorDestinationFilter}
+            onChange={(nextValue) => setShipmentCorridorDestinationFilter(nextValue)}
+            placeholder={tr(uiLanguage, 'Select corridor destination', 'Selectionnez la destination du corridor')}
+            referenceWilaya={shipmentCorridorOriginFilter}
+          />
+        </div>
+        <div className="flex gap-3 mb-4">
           <button
             onClick={() => {
               setShipmentOriginFilter('')
               setShipmentDestinationFilter('')
+              setShipmentWilayaFilter('')
+              setShipmentCorridorOriginFilter('')
+              setShipmentCorridorDestinationFilter('')
               setShipmentCapacityFilter('')
             }}
             className="px-3 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 transition-colors text-sm font-medium"
@@ -2928,14 +3071,18 @@ function RoutesSection({
   setRouteTypeFilter,
   routeOriginFilter,
   routeDestinationFilter,
+  routeWilayaFilter,
   routeCorridorOriginFilter,
   routeCorridorDestinationFilter,
   routeCapacityFilter,
+  routeVehicleTypeFilter,
   setRouteOriginFilter,
   setRouteDestinationFilter,
+  setRouteWilayaFilter,
   setRouteCorridorOriginFilter,
   setRouteCorridorDestinationFilter,
   setRouteCapacityFilter,
+  setRouteVehicleTypeFilter,
   deleteRoute,
   contactShipper,
   toggleRouteDetails,
@@ -2994,7 +3141,7 @@ function RoutesSection({
             </span>
           )}
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
           <input
             type="text"
             placeholder={tr(uiLanguage, 'Search by departure city', 'Rechercher par ville de depart', '   ')}
@@ -3016,8 +3163,26 @@ function RoutesSection({
             onChange={(e) => setRouteCapacityFilter(e.target.value)}
             className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
           />
+          <select
+            value={routeVehicleTypeFilter}
+            onChange={(e) => setRouteVehicleTypeFilter(e.target.value)}
+            className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            <option value="">{tr(uiLanguage, 'All vehicle types', 'Tous les types de vehicules', ' ')}</option>
+            {VEHICLE_TYPE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {tr(uiLanguage, option.en, option.fr)}
+              </option>
+            ))}
+          </select>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+          <WilayaSelector
+            label={tr(uiLanguage, 'Filter by Wilaya', 'Filtrer par Wilaya')}
+            value={routeWilayaFilter}
+            onChange={(nextValue) => setRouteWilayaFilter(nextValue)}
+            placeholder={tr(uiLanguage, 'Select wilaya', 'Selectionnez une wilaya')}
+          />
           <WilayaSelector
             label={tr(uiLanguage, 'Route corridor origin', 'Origine du corridor')}
             value={routeCorridorOriginFilter}
@@ -3042,9 +3207,11 @@ function RoutesSection({
             onClick={() => {
               setRouteOriginFilter('')
               setRouteDestinationFilter('')
+              setRouteWilayaFilter('')
               setRouteCorridorOriginFilter('')
               setRouteCorridorDestinationFilter('')
               setRouteCapacityFilter('')
+              setRouteVehicleTypeFilter('')
               setRouteTypeFilter('all')
             }}
             className="px-3 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 transition-colors text-sm font-medium"
@@ -5750,10 +5917,26 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
     onDelete?.()
   }
 
+  const stopCardClick = (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
   return (
-    <div className="p-4 bg-muted hover:bg-muted/80 rounded-lg border border-border hover:border-primary/30 transition-all cursor-pointer group">
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => onToggleDetails?.()}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onToggleDetails?.()
+        }
+      }}
+      className="p-4 bg-muted hover:bg-muted/80 rounded-lg border border-border hover:border-primary/30 transition-all cursor-pointer group focus:outline-none focus:ring-2 focus:ring-primary/40"
+    >
       <div className="flex items-start justify-between mb-3">
-        <div onClick={onToggleDetails}>
+        <div>
           <p className="font-semibold text-foreground">{id}</p>
           {itemName && <p className="text-sm text-foreground/80 mt-0.5">{itemName}</p>}
           {ownerName && <p className="text-xs text-muted-foreground mt-0.5">{t('Posted by', 'Publie par')}: {ownerName}</p>}
@@ -5812,8 +5995,7 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
         <button
           type="button"
           onClick={(event) => {
-            event.preventDefault()
-            event.stopPropagation()
+            stopCardClick(event)
             onInvite()
           }}
           disabled={inviteSent || inviteDisabled}
@@ -5842,13 +6024,21 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
               <p className="text-xs font-semibold text-foreground">{t('Most relevant trucker posts (same route)', 'Publications transporteurs les plus pertinentes (meme trajet)')}</p>
               <div className="flex items-center gap-1 rounded-md bg-muted p-1">
                 <button
-                  onClick={() => setRelevantRouteFilter('all')}
+                  type="button"
+                  onClick={(event) => {
+                    stopCardClick(event)
+                    setRelevantRouteFilter('all')
+                  }}
                   className={`px-2 py-1 rounded text-[10px] font-semibold transition-colors ${relevantRouteFilter === 'all' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-background/80'}`}
                 >
                   {t('All', 'Tous')}
                 </button>
                 <button
-                  onClick={() => setRelevantRouteFilter('live_truckers')}
+                  type="button"
+                  onClick={(event) => {
+                    stopCardClick(event)
+                    setRelevantRouteFilter('live_truckers')
+                  }}
                   className={`px-2 py-1 rounded text-[10px] font-semibold transition-colors ${relevantRouteFilter === 'live_truckers' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-background/80'}`}
                 >
                   {t('Live truckers', 'Transporteurs en direct')}
@@ -5874,7 +6064,11 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
 
           {showInvite && onInvite && (
             <button
-              onClick={onInvite}
+              type="button"
+              onClick={(event) => {
+                stopCardClick(event)
+                onInvite()
+              }}
               disabled={inviteSent || inviteDisabled}
               className={`w-full px-3 py-2 text-xs font-medium rounded transition-colors ${(inviteSent || inviteDisabled) ? 'bg-slate-400 text-white cursor-default' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
             >
@@ -5885,7 +6079,11 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
           )}
           {!isReadOnly && (
             <button
-              onClick={onStatusChange}
+              type="button"
+              onClick={(event) => {
+                stopCardClick(event)
+                onStatusChange?.()
+              }}
               disabled={isStatusLocked}
               className="w-full px-3 py-2 bg-primary text-primary-foreground text-xs font-medium rounded hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
             >
@@ -5929,10 +6127,26 @@ function RouteCard({ uiLanguage, id, from, to, capacity, available, departure, p
     onDelete?.()
   }
 
+  const stopCardClick = (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
   return (
-    <div className="p-4 bg-muted hover:bg-muted/80 rounded-lg border border-border hover:border-primary/30 transition-all group">
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => onToggleDetails?.()}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onToggleDetails?.()
+        }
+      }}
+      className="p-4 bg-muted hover:bg-muted/80 rounded-lg border border-border hover:border-primary/30 transition-all cursor-pointer group focus:outline-none focus:ring-2 focus:ring-primary/40"
+    >
       <div className="flex items-start justify-between mb-3">
-        <div onClick={onToggleDetails} className="cursor-pointer">
+        <div>
           <p className="font-semibold text-foreground">{id}</p>
           {ownerName && <p className="text-xs text-muted-foreground mt-0.5">{t('Posted by', 'Publie par')}: {ownerName}</p>}
           <p className="text-xs text-muted-foreground mt-0.5">{departure}</p>
@@ -5987,7 +6201,11 @@ function RouteCard({ uiLanguage, id, from, to, capacity, available, departure, p
       </div>
       {onContact && (
         <button
-          onClick={onContact}
+          type="button"
+          onClick={(event) => {
+            stopCardClick(event)
+            onContact()
+          }}
           disabled={contactSent || contactDisabled}
           className={`w-full px-3 py-2 text-xs font-medium rounded transition-colors ${(contactSent || contactDisabled) ? 'bg-slate-400 text-white cursor-default' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
         >
@@ -6021,7 +6239,11 @@ function RouteCard({ uiLanguage, id, from, to, capacity, available, departure, p
                       </div>
                       {onContactRelevantShipment && (
                         <button
-                          onClick={() => onContactRelevantShipment(shipment)}
+                          type="button"
+                          onClick={(event) => {
+                            stopCardClick(event)
+                            onContactRelevantShipment(shipment)
+                          }}
                           disabled={Boolean(isRelevantShipmentInvitationSent?.(shipment.id))}
                           className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-colors ${isRelevantShipmentInvitationSent?.(shipment.id) ? 'bg-green-600 text-white cursor-default' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
                         >
