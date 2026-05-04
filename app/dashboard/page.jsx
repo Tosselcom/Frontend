@@ -531,13 +531,18 @@ export default function DashboardPage() {
   const [shipmentCapacityFilter, setShipmentCapacityFilter] = useState('')
   const [shipmentCorridorOriginFilter, setShipmentCorridorOriginFilter] = useState('')
   const [shipmentCorridorDestinationFilter, setShipmentCorridorDestinationFilter] = useState('')
+  const [shipmentBetweenWilaya1Filter, setShipmentBetweenWilaya1Filter] = useState('')
+  const [shipmentBetweenWilaya2Filter, setShipmentBetweenWilaya2Filter] = useState('')
   const [routeOriginFilter, setRouteOriginFilter] = useState('')
   const [routeDestinationFilter, setRouteDestinationFilter] = useState('')
   const [routeWilayaFilter, setRouteWilayaFilter] = useState('')
   const [routeCorridorOriginFilter, setRouteCorridorOriginFilter] = useState('')
   const [routeCorridorDestinationFilter, setRouteCorridorDestinationFilter] = useState('')
+  const [routeBetweenWilaya1Filter, setRouteBetweenWilaya1Filter] = useState('')
+  const [routeBetweenWilaya2Filter, setRouteBetweenWilaya2Filter] = useState('')
   const [routeCapacityFilter, setRouteCapacityFilter] = useState('')
   const [routeVehicleTypeFilter, setRouteVehicleTypeFilter] = useState('')
+
   const [detailView, setDetailView] = useState({ type: null, id: null })
   const realtimeSocketRef = useRef(null)
   const [showRouteModal, setShowRouteModal] = useState(false)
@@ -1832,6 +1837,69 @@ export default function DashboardPage() {
     return false
   }
 
+  // Helper: Check whether a wilaya sits on the selected route corridor path
+  const wilayaFallsOnRouteCorridor = (wilayaName, corridorFrom, corridorTo) => {
+    const wilayaPoint = getWilayaPoint(wilayaName)
+    if (!wilayaPoint) return false
+
+    const corridorPathNames = getShortestWilayaPathNames(corridorFrom, corridorTo)
+    if (!corridorPathNames.length) return false
+
+    const normalizedWilaya = normalizeWilayaName(wilayaName)
+    const normalizedCorridorNames = corridorPathNames.map((name) => normalizeWilayaName(name))
+    if (normalizedCorridorNames.includes(normalizedWilaya)) return true
+
+    const corridorPoints = corridorPathNames
+      .map((name) => getWilayaPoint(name))
+      .filter(Boolean)
+
+    if (corridorPoints.length < 2) return false
+
+    let nearestDistance = Infinity
+    let nearestSignedOffset = 0
+
+    for (let index = 0; index < corridorPoints.length - 1; index += 1) {
+      const segmentStart = corridorPoints[index]
+      const segmentEnd = corridorPoints[index + 1]
+      const segmentDistance = getDistancePointToSegmentKm(wilayaPoint, segmentStart, segmentEnd)
+
+      const referenceLat = (segmentStart.lat + segmentEnd.lat) / 2
+      const projectedPoint = projectToLocalKm(wilayaPoint, referenceLat)
+      const projectedStart = projectToLocalKm(segmentStart, referenceLat)
+      const projectedEnd = projectToLocalKm(segmentEnd, referenceLat)
+      const segmentX = projectedEnd.x - projectedStart.x
+      const segmentY = projectedEnd.y - projectedStart.y
+      const pointX = projectedPoint.x - projectedStart.x
+      const pointY = projectedPoint.y - projectedStart.y
+      const signedOffset = (segmentX * pointY) - (segmentY * pointX)
+
+      if (segmentDistance < nearestDistance) {
+        nearestDistance = segmentDistance
+        nearestSignedOffset = signedOffset
+      }
+    }
+
+    return nearestDistance <= 80 && nearestSignedOffset <= 0
+  }
+
+  // Helper: Check if a post fits the selected corridor path (bidirectional: wilaya1→wilaya2 OR wilaya2→wilaya1)
+  const postFitsBetweenWilayas = (postOrigin, postDestination, wilaya1, wilaya2, availableCity = '') => {
+    // Check direction 1: wilaya1 → wilaya2
+    const originBetween1 = wilayaFallsOnRouteCorridor(postOrigin, wilaya1, wilaya2)
+    const destinationBetween1 = wilayaFallsOnRouteCorridor(postDestination, wilaya1, wilaya2)
+    const availableCityBetween1 = !availableCity || wilayaFallsOnRouteCorridor(availableCity, wilaya1, wilaya2)
+    const matchesDirection1 = originBetween1 && destinationBetween1 && availableCityBetween1
+
+    // Check direction 2: wilaya2 → wilaya1 (reverse)
+    const originBetween2 = wilayaFallsOnRouteCorridor(postOrigin, wilaya2, wilaya1)
+    const destinationBetween2 = wilayaFallsOnRouteCorridor(postDestination, wilaya2, wilaya1)
+    const availableCityBetween2 = !availableCity || wilayaFallsOnRouteCorridor(availableCity, wilaya2, wilaya1)
+    const matchesDirection2 = originBetween2 && destinationBetween2 && availableCityBetween2
+
+    // Match if either direction matches (aller et retour)
+    return matchesDirection1 || matchesDirection2
+  }
+
   const matchesPostFilters = (item, config) => {
     const {
       originFilterValue,
@@ -1839,6 +1907,8 @@ export default function DashboardPage() {
       wilayaFilterValue,
       corridorOriginFilterValue,
       corridorDestinationFilterValue,
+      betweenWilaya1FilterValue,
+      betweenWilaya2FilterValue,
       capacityFilterValue,
       vehicleTypeFilterValue = '',
       capacityComparator = 'lte',
@@ -1847,6 +1917,7 @@ export default function DashboardPage() {
       getDestination,
       getWaypoints,
       getCapacity,
+      getAvailableCity = null,
       corridorSegmentValue = '',
     } = config
 
@@ -1855,17 +1926,23 @@ export default function DashboardPage() {
     const normalizedWilayaFilter = normalizeWilayaName(wilayaFilterValue)
     const normalizedCorridorOriginFilter = normalizeRouteText(corridorOriginFilterValue)
     const normalizedCorridorDestinationFilter = normalizeRouteText(corridorDestinationFilterValue)
+    const normalizedBetweenWilaya1Filter = normalizeWilayaName(betweenWilaya1FilterValue)
+    const normalizedBetweenWilaya2Filter = normalizeWilayaName(betweenWilaya2FilterValue)
     const hasOriginFilter = Boolean(normalizedOriginFilter)
     const hasDestinationFilter = Boolean(normalizedDestinationFilter)
     const hasWilayaFilter = Boolean(normalizedWilayaFilter)
     const hasCorridorOriginFilter = Boolean(normalizedCorridorOriginFilter)
     const hasCorridorDestinationFilter = Boolean(normalizedCorridorDestinationFilter)
+    const hasBetweenWilaya1Filter = Boolean(normalizedBetweenWilaya1Filter)
+    const hasBetweenWilaya2Filter = Boolean(normalizedBetweenWilaya2Filter)
+    const betweenWilayasFiltersActive = hasBetweenWilaya1Filter && hasBetweenWilaya2Filter
     const corridorFiltersActive = hasCorridorOriginFilter && hasCorridorDestinationFilter
 
     const originValue = getOrigin(item)
     const destinationValue = getDestination(item)
     const waypoints = getWaypoints(item)
     const normalizedWaypoints = waypoints.map((value) => normalizeWilayaName(value))
+    const availableCityValue = getAvailableCity ? getAvailableCity(item) : null
 
     const originTextMatches = !hasOriginFilter || normalizeRouteText(originValue).includes(normalizedOriginFilter)
     const destinationTextMatches = !hasDestinationFilter || normalizeRouteText(destinationValue).includes(normalizedDestinationFilter)
@@ -1884,6 +1961,11 @@ export default function DashboardPage() {
       ? (corridorOriginTextMatches && corridorDestinationTextMatches) || corridorMatches
       : true
 
+    // Between Wilayas filter: the post endpoints should fall inside the selected corridor
+    const betweenWilayasMatches = betweenWilayasFiltersActive
+      ? postFitsBetweenWilayas(originValue, destinationValue, betweenWilaya1FilterValue, betweenWilaya2FilterValue, availableCityValue)
+      : true
+
     const geometryMatches = hasOriginFilter && hasDestinationFilter
       ? (originTextMatches && destinationTextMatches) || corridorMatches
       : originTextMatches && destinationTextMatches
@@ -1898,7 +1980,7 @@ export default function DashboardPage() {
 
     const vehicleTypeMatches = !vehicleTypeFilterValue || routeHasVehicleType(item, vehicleTypeFilterValue)
 
-    return geometryMatches && corridorGeometryMatches && wilayaMatches && capacityMatches && vehicleTypeMatches && typeMatches
+    return geometryMatches && corridorGeometryMatches && betweenWilayasMatches && wilayaMatches && capacityMatches && vehicleTypeMatches && typeMatches
   }
 
   // Section-level filters (shipments: mirror availability/route filters + corridor support)
@@ -1909,13 +1991,16 @@ export default function DashboardPage() {
       wilayaFilterValue: shipmentWilayaFilter,
       corridorOriginFilterValue: shipmentCorridorOriginFilter,
       corridorDestinationFilterValue: shipmentCorridorDestinationFilter,
+      betweenWilaya1FilterValue: shipmentBetweenWilaya1Filter,
+      betweenWilaya2FilterValue: shipmentBetweenWilaya2Filter,
       capacityFilterValue: shipmentCapacityFilter,
       getOrigin: (post) => post.origin,
       getDestination: (post) => post.destination,
       getWaypoints: (post) => getRouteWaypoints(post.origin, '', post.destination),
       getCapacity: (post) => post.capacity,
+      getAvailableCity: null,
     })),
-    [shipmentItems, shipmentOriginFilter, shipmentDestinationFilter, shipmentWilayaFilter, shipmentCorridorOriginFilter, shipmentCorridorDestinationFilter, shipmentCapacityFilter]
+    [shipmentItems, shipmentOriginFilter, shipmentDestinationFilter, shipmentWilayaFilter, shipmentCorridorOriginFilter, shipmentCorridorDestinationFilter, shipmentBetweenWilaya1Filter, shipmentBetweenWilaya2Filter, shipmentCapacityFilter]
   )
 
   const filteredRoutes = useMemo(
@@ -1925,6 +2010,8 @@ export default function DashboardPage() {
       wilayaFilterValue: routeWilayaFilter,
       corridorOriginFilterValue: routeCorridorOriginFilter,
       corridorDestinationFilterValue: routeCorridorDestinationFilter,
+      betweenWilaya1FilterValue: routeBetweenWilaya1Filter,
+      betweenWilaya2FilterValue: routeBetweenWilaya2Filter,
       capacityFilterValue: routeCapacityFilter,
       vehicleTypeFilterValue: routeVehicleTypeFilter,
       capacityComparator: 'gte',
@@ -1937,9 +2024,10 @@ export default function DashboardPage() {
       getDestination: (post) => post.to,
       getWaypoints: (post) => getRouteWaypoints(post.from, post.availableCity, post.to),
       getCapacity: (post) => post.available,
+      getAvailableCity: (post) => post.availableCity,
       corridorSegmentValue: item?.availableCity || '',
     })),
-    [routeItems, routeOriginFilter, routeDestinationFilter, routeWilayaFilter, routeCorridorOriginFilter, routeCorridorDestinationFilter, routeCapacityFilter, routeVehicleTypeFilter, routeTypeFilter]
+    [routeItems, routeOriginFilter, routeDestinationFilter, routeWilayaFilter, routeCorridorOriginFilter, routeCorridorDestinationFilter, routeBetweenWilaya1Filter, routeBetweenWilaya2Filter, routeCapacityFilter, routeVehicleTypeFilter, routeTypeFilter]
   )
 
   return (
@@ -2115,6 +2203,7 @@ export default function DashboardPage() {
         {/* Content Area */}
         <main className="flex-1 overflow-auto">
           <div className="p-4 sm:p-7 lg:p-10 xl:px-12 xl:py-11 space-y-6 sm:space-y-9 animate-in fade-in duration-500">
+            
             {detailView.type ? (
               <PostDetailPage
                 uiLanguage={uiLanguage}
@@ -2160,12 +2249,16 @@ export default function DashboardPage() {
                     shipmentWilayaFilter={shipmentWilayaFilter}
                     shipmentCorridorOriginFilter={shipmentCorridorOriginFilter}
                     shipmentCorridorDestinationFilter={shipmentCorridorDestinationFilter}
+                    shipmentBetweenWilaya1Filter={shipmentBetweenWilaya1Filter}
+                    shipmentBetweenWilaya2Filter={shipmentBetweenWilaya2Filter}
                     shipmentCapacityFilter={shipmentCapacityFilter}
                     setShipmentOriginFilter={setShipmentOriginFilter}
                     setShipmentDestinationFilter={setShipmentDestinationFilter}
                     setShipmentWilayaFilter={setShipmentWilayaFilter}
                     setShipmentCorridorOriginFilter={setShipmentCorridorOriginFilter}
                     setShipmentCorridorDestinationFilter={setShipmentCorridorDestinationFilter}
+                    setShipmentBetweenWilaya1Filter={setShipmentBetweenWilaya1Filter}
+                    setShipmentBetweenWilaya2Filter={setShipmentBetweenWilaya2Filter}
                     setShipmentCapacityFilter={setShipmentCapacityFilter}
                     advanceShipmentStatus={advanceShipmentStatus}
                     deleteShipment={deleteShipment}
@@ -2190,6 +2283,8 @@ export default function DashboardPage() {
                     routeWilayaFilter={routeWilayaFilter}
                     routeCorridorOriginFilter={routeCorridorOriginFilter}
                     routeCorridorDestinationFilter={routeCorridorDestinationFilter}
+                    routeBetweenWilaya1Filter={routeBetweenWilaya1Filter}
+                    routeBetweenWilaya2Filter={routeBetweenWilaya2Filter}
                     routeCapacityFilter={routeCapacityFilter}
                     routeVehicleTypeFilter={routeVehicleTypeFilter}
                     setRouteOriginFilter={setRouteOriginFilter}
@@ -2197,6 +2292,8 @@ export default function DashboardPage() {
                     setRouteWilayaFilter={setRouteWilayaFilter}
                     setRouteCorridorOriginFilter={setRouteCorridorOriginFilter}
                     setRouteCorridorDestinationFilter={setRouteCorridorDestinationFilter}
+                    setRouteBetweenWilaya1Filter={setRouteBetweenWilaya1Filter}
+                    setRouteBetweenWilaya2Filter={setRouteBetweenWilaya2Filter}
                     setRouteCapacityFilter={setRouteCapacityFilter}
                     setRouteVehicleTypeFilter={setRouteVehicleTypeFilter}
                     deleteRoute={deleteRoute}
@@ -2873,12 +2970,16 @@ function ShipmentsSection({
   shipmentWilayaFilter,
   shipmentCorridorOriginFilter,
   shipmentCorridorDestinationFilter,
+  shipmentBetweenWilaya1Filter,
+  shipmentBetweenWilaya2Filter,
   shipmentCapacityFilter,
   setShipmentOriginFilter,
   setShipmentDestinationFilter,
   setShipmentWilayaFilter,
   setShipmentCorridorOriginFilter,
   setShipmentCorridorDestinationFilter,
+  setShipmentBetweenWilaya1Filter,
+  setShipmentBetweenWilaya2Filter,
   setShipmentCapacityFilter,
   advanceShipmentStatus,
   deleteShipment,
@@ -2970,7 +3071,7 @@ function ShipmentsSection({
             placeholder={tr(uiLanguage, 'Select wilaya', 'Selectionnez une wilaya')}
           />
           <WilayaSelector
-            label={tr(uiLanguage, 'Route corridor origin', 'Origine du corridor')}
+            label={tr(uiLanguage, 'Passes through (First wilaya)', 'Passe par (Premiere wilaya)')}
             value={shipmentCorridorOriginFilter}
             onChange={(nextValue) => {
               setShipmentCorridorOriginFilter(nextValue)
@@ -2978,14 +3079,34 @@ function ShipmentsSection({
                 setShipmentCorridorDestinationFilter('')
               }
             }}
-            placeholder={tr(uiLanguage, 'Select corridor origin', 'Selectionnez l origine du corridor')}
+            placeholder={tr(uiLanguage, 'Select first wilaya', 'Selectionnez la premiere wilaya')}
           />
           <WilayaSelector
-            label={tr(uiLanguage, 'Route corridor destination', 'Destination du corridor')}
+            label={tr(uiLanguage, 'Passes through (Second wilaya)', 'Passe par (Deuxieme wilaya)')}
             value={shipmentCorridorDestinationFilter}
             onChange={(nextValue) => setShipmentCorridorDestinationFilter(nextValue)}
-            placeholder={tr(uiLanguage, 'Select corridor destination', 'Selectionnez la destination du corridor')}
+            placeholder={tr(uiLanguage, 'Select second wilaya', 'Selectionnez la deuxieme wilaya')}
             referenceWilaya={shipmentCorridorOriginFilter}
+          />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+          <WilayaSelector
+            label={tr(uiLanguage, 'Between Wilayas (First wilaya)', 'Entre deux wilayas (Premiere wilaya)')}
+            value={shipmentBetweenWilaya1Filter}
+            onChange={(nextValue) => {
+              setShipmentBetweenWilaya1Filter(nextValue)
+              if (shipmentBetweenWilaya2Filter && !nextValue) {
+                setShipmentBetweenWilaya2Filter('')
+              }
+            }}
+            placeholder={tr(uiLanguage, 'Select first wilaya', 'Selectionnez la premiere wilaya')}
+          />
+          <WilayaSelector
+            label={tr(uiLanguage, 'Between Wilayas (Second wilaya)', 'Entre deux wilayas (Deuxieme wilaya)')}
+            value={shipmentBetweenWilaya2Filter}
+            onChange={(nextValue) => setShipmentBetweenWilaya2Filter(nextValue)}
+            placeholder={tr(uiLanguage, 'Select second wilaya', 'Selectionnez la deuxieme wilaya')}
+            referenceWilaya={shipmentBetweenWilaya1Filter}
           />
         </div>
         <div className="flex gap-3 mb-4">
@@ -2996,6 +3117,8 @@ function ShipmentsSection({
               setShipmentWilayaFilter('')
               setShipmentCorridorOriginFilter('')
               setShipmentCorridorDestinationFilter('')
+              setShipmentBetweenWilaya1Filter('')
+              setShipmentBetweenWilaya2Filter('')
               setShipmentCapacityFilter('')
             }}
             className="px-3 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 transition-colors text-sm font-medium"
@@ -3074,6 +3197,8 @@ function RoutesSection({
   routeWilayaFilter,
   routeCorridorOriginFilter,
   routeCorridorDestinationFilter,
+  routeBetweenWilaya1Filter,
+  routeBetweenWilaya2Filter,
   routeCapacityFilter,
   routeVehicleTypeFilter,
   setRouteOriginFilter,
@@ -3081,6 +3206,8 @@ function RoutesSection({
   setRouteWilayaFilter,
   setRouteCorridorOriginFilter,
   setRouteCorridorDestinationFilter,
+  setRouteBetweenWilaya1Filter,
+  setRouteBetweenWilaya2Filter,
   setRouteCapacityFilter,
   setRouteVehicleTypeFilter,
   deleteRoute,
@@ -3184,7 +3311,7 @@ function RoutesSection({
             placeholder={tr(uiLanguage, 'Select wilaya', 'Selectionnez une wilaya')}
           />
           <WilayaSelector
-            label={tr(uiLanguage, 'Route corridor origin', 'Origine du corridor')}
+            label={tr(uiLanguage, 'Passes through (First wilaya)', 'Passe par (Premiere wilaya)')}
             value={routeCorridorOriginFilter}
             onChange={(nextValue) => {
               setRouteCorridorOriginFilter(nextValue)
@@ -3192,14 +3319,34 @@ function RoutesSection({
                 setRouteCorridorDestinationFilter('')
               }
             }}
-            placeholder={tr(uiLanguage, 'Select corridor origin', 'Selectionnez l origine du corridor')}
+            placeholder={tr(uiLanguage, 'Select first wilaya', 'Selectionnez la premiere wilaya')}
           />
           <WilayaSelector
-            label={tr(uiLanguage, 'Route corridor destination', 'Destination du corridor')}
+            label={tr(uiLanguage, 'Passes through (Second wilaya)', 'Passe par (Deuxieme wilaya)')}
             value={routeCorridorDestinationFilter}
             onChange={(nextValue) => setRouteCorridorDestinationFilter(nextValue)}
-            placeholder={tr(uiLanguage, 'Select corridor destination', 'Selectionnez la destination du corridor')}
+            placeholder={tr(uiLanguage, 'Select second wilaya', 'Selectionnez la deuxieme wilaya')}
             referenceWilaya={routeCorridorOriginFilter}
+          />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+          <WilayaSelector
+            label={tr(uiLanguage, 'Between Wilayas (First wilaya)', 'Entre deux wilayas (Premiere wilaya)')}
+            value={routeBetweenWilaya1Filter}
+            onChange={(nextValue) => {
+              setRouteBetweenWilaya1Filter(nextValue)
+              if (routeBetweenWilaya2Filter && !nextValue) {
+                setRouteBetweenWilaya2Filter('')
+              }
+            }}
+            placeholder={tr(uiLanguage, 'Select first wilaya', 'Selectionnez la premiere wilaya')}
+          />
+          <WilayaSelector
+            label={tr(uiLanguage, 'Between Wilayas (Second wilaya)', 'Entre deux wilayas (Deuxieme wilaya)')}
+            value={routeBetweenWilaya2Filter}
+            onChange={(nextValue) => setRouteBetweenWilaya2Filter(nextValue)}
+            placeholder={tr(uiLanguage, 'Select second wilaya', 'Selectionnez la deuxieme wilaya')}
+            referenceWilaya={routeBetweenWilaya1Filter}
           />
         </div>
         <div className="flex gap-3 mb-4">
@@ -3210,6 +3357,8 @@ function RoutesSection({
               setRouteWilayaFilter('')
               setRouteCorridorOriginFilter('')
               setRouteCorridorDestinationFilter('')
+              setRouteBetweenWilaya1Filter('')
+              setRouteBetweenWilaya2Filter('')
               setRouteCapacityFilter('')
               setRouteVehicleTypeFilter('')
               setRouteTypeFilter('all')
