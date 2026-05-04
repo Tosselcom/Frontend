@@ -25,6 +25,7 @@ import {
   PhoneCall,
 } from 'lucide-react'
 import DashboardSidebar from '@/components/dashboard-sidebar'
+import WilayaSearch from '@/components/ui/wilaya-search'
 import { discoverApiBaseUrl, getApiBaseUrl, getApiUrl } from '@/lib/api'
 
 const DEFAULT_USER = { name: 'John User', email: 'john@tosselcom.com', role: 'shared', photo: '' }
@@ -2421,44 +2422,33 @@ export default function DashboardPage() {
             <div className="space-y-4">
               {routePostType === 'full_route' && (
                 <>
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'From (City)', 'Depuis (Ville)')}</label>
-                    <input
-                      type="text"
-                      value={formData.from}
-                      onChange={(e) => setFormData({ ...formData, from: e.target.value })}
-                      placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
-                      className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                      required
-                    />
-                  </div>
+                  <WilayaSearch
+                    label={tr(uiLanguage, 'From (City)', 'Depuis (Ville)')}
+                    value={formData.from}
+                    onChange={(nextValue) => setFormData({ ...formData, from: nextValue })}
+                    placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+                    required
+                  />
                   
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'To (City)', 'Vers (Ville)')}</label>
-                    <input
-                      type="text"
-                      value={formData.to}
-                      onChange={(e) => setFormData({ ...formData, to: e.target.value })}
-                      placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
-                      className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                      required
-                    />
-                  </div>
+                  <WilayaSearch
+                    label={tr(uiLanguage, 'To (City)', 'Vers (Ville)')}
+                    value={formData.to}
+                    onChange={(nextValue) => setFormData({ ...formData, to: nextValue })}
+                    placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+                    referenceWilaya={formData.from}
+                    required
+                  />
                 </>
               )}
 
               {routePostType === 'availability_only' && (
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Availability City', 'Ville de disponibilite')}</label>
-                  <input
-                    type="text"
-                    value={formData.availableCity}
-                    onChange={(e) => setFormData({ ...formData, availableCity: e.target.value })}
-                    placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
-                    className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                    required
-                  />
-                </div>
+                <WilayaSearch
+                  label={tr(uiLanguage, 'Availability City', 'Ville de disponibilite')}
+                  value={formData.availableCity}
+                  onChange={(nextValue) => setFormData({ ...formData, availableCity: nextValue })}
+                  placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+                  required
+                />
               )}
 
               <div>
@@ -2687,29 +2677,22 @@ export default function DashboardPage() {
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'From (City)', 'Depuis (Ville)')}</label>
-                <input
-                  type="text"
-                  value={shipmentFormData.origin}
-                  onChange={(e) => setShipmentFormData({ ...shipmentFormData, origin: e.target.value })}
-                  placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
-                  className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  required
-                />
-              </div>
+              <WilayaSearch
+                label={tr(uiLanguage, 'From (City)', 'Depuis (Ville)')}
+                value={shipmentFormData.origin}
+                onChange={(nextValue) => setShipmentFormData({ ...shipmentFormData, origin: nextValue })}
+                placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+                required
+              />
               
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'To (City)', 'Vers (Ville)')}</label>
-                <input
-                  type="text"
-                  value={shipmentFormData.destination}
-                  onChange={(e) => setShipmentFormData({ ...shipmentFormData, destination: e.target.value })}
-                  placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
-                  className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  required
-                />
-              </div>
+              <WilayaSearch
+                label={tr(uiLanguage, 'To (City)', 'Vers (Ville)')}
+                value={shipmentFormData.destination}
+                onChange={(nextValue) => setShipmentFormData({ ...shipmentFormData, destination: nextValue })}
+                placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+                referenceWilaya={shipmentFormData.origin}
+                required
+              />
               
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Weight (kg)', 'Poids (kg)')}</label>
@@ -3156,68 +3139,50 @@ function ShipmentsSection({
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Filter by Wilaya', 'Filtrer par Wilaya')}</label>
-            <input
-              type="text"
-              value={shipmentWilayaFilter}
-              onChange={(e) => setShipmentWilayaFilter(e.target.value)}
-              placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
-              className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Passes through (First wilaya)', 'Passe par (Premiere wilaya)')}</label>
-            <input
-              type="text"
-              value={shipmentCorridorOriginFilter}
-              onChange={(e) => {
-                setShipmentCorridorOriginFilter(e.target.value)
-                if (shipmentCorridorDestinationFilter) {
-                  setShipmentCorridorDestinationFilter('')
-                }
-              }}
-              placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
-              className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Passes through (Second wilaya)', 'Passe par (Deuxieme wilaya)')}</label>
-            <input
-              type="text"
-              value={shipmentCorridorDestinationFilter}
-              onChange={(e) => setShipmentCorridorDestinationFilter(e.target.value)}
-              placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
-              className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-          </div>
+          <WilayaSearch
+            label={tr(uiLanguage, 'Filter by Wilaya', 'Filtrer par Wilaya')}
+            value={shipmentWilayaFilter}
+            onChange={(nextValue) => setShipmentWilayaFilter(nextValue)}
+            placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+          />
+          <WilayaSearch
+            label={tr(uiLanguage, 'Passes through (First wilaya)', 'Passe par (Premiere wilaya)')}
+            value={shipmentCorridorOriginFilter}
+            onChange={(nextValue) => {
+              setShipmentCorridorOriginFilter(nextValue)
+              if (shipmentCorridorDestinationFilter) {
+                setShipmentCorridorDestinationFilter('')
+              }
+            }}
+            placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+          />
+          <WilayaSearch
+            label={tr(uiLanguage, 'Passes through (Second wilaya)', 'Passe par (Deuxieme wilaya)')}
+            value={shipmentCorridorDestinationFilter}
+            onChange={(nextValue) => setShipmentCorridorDestinationFilter(nextValue)}
+            placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+            referenceWilaya={shipmentCorridorOriginFilter}
+          />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Between Wilayas (First wilaya)', 'Entre deux wilayas (Premiere wilaya)')}</label>
-            <input
-              type="text"
-              value={shipmentBetweenWilaya1Filter}
-              onChange={(e) => {
-                setShipmentBetweenWilaya1Filter(e.target.value)
-                if (shipmentBetweenWilaya2Filter && !e.target.value) {
-                  setShipmentBetweenWilaya2Filter('')
-                }
-              }}
-              placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
-              className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Between Wilayas (Second wilaya)', 'Entre deux wilayas (Deuxieme wilaya)')}</label>
-            <input
-              type="text"
-              value={shipmentBetweenWilaya2Filter}
-              onChange={(e) => setShipmentBetweenWilaya2Filter(e.target.value)}
-              placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
-              className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-          </div>
+          <WilayaSearch
+            label={tr(uiLanguage, 'Between Wilayas (First wilaya)', 'Entre deux wilayas (Premiere wilaya)')}
+            value={shipmentBetweenWilaya1Filter}
+            onChange={(nextValue) => {
+              setShipmentBetweenWilaya1Filter(nextValue)
+              if (shipmentBetweenWilaya2Filter && !nextValue) {
+                setShipmentBetweenWilaya2Filter('')
+              }
+            }}
+            placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+          />
+          <WilayaSearch
+            label={tr(uiLanguage, 'Between Wilayas (Second wilaya)', 'Entre deux wilayas (Deuxieme wilaya)')}
+            value={shipmentBetweenWilaya2Filter}
+            onChange={(nextValue) => setShipmentBetweenWilaya2Filter(nextValue)}
+            placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+            referenceWilaya={shipmentBetweenWilaya1Filter}
+          />
         </div>
         <div className="flex gap-3 mb-4">
           <button
@@ -3468,68 +3433,50 @@ function RoutesSection({
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Filter by Wilaya', 'Filtrer par Wilaya')}</label>
-            <input
-              type="text"
-              value={routeWilayaFilter}
-              onChange={(e) => setRouteWilayaFilter(e.target.value)}
-              placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
-              className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Passes through (First wilaya)', 'Passe par (Premiere wilaya)')}</label>
-            <input
-              type="text"
-              value={routeCorridorOriginFilter}
-              onChange={(e) => {
-                setRouteCorridorOriginFilter(e.target.value)
-                if (routeCorridorDestinationFilter) {
-                  setRouteCorridorDestinationFilter('')
-                }
-              }}
-              placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
-              className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Passes through (Second wilaya)', 'Passe par (Deuxieme wilaya)')}</label>
-            <input
-              type="text"
-              value={routeCorridorDestinationFilter}
-              onChange={(e) => setRouteCorridorDestinationFilter(e.target.value)}
-              placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
-              className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-          </div>
+          <WilayaSearch
+            label={tr(uiLanguage, 'Filter by Wilaya', 'Filtrer par Wilaya')}
+            value={routeWilayaFilter}
+            onChange={(nextValue) => setRouteWilayaFilter(nextValue)}
+            placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+          />
+          <WilayaSearch
+            label={tr(uiLanguage, 'Passes through (First wilaya)', 'Passe par (Premiere wilaya)')}
+            value={routeCorridorOriginFilter}
+            onChange={(nextValue) => {
+              setRouteCorridorOriginFilter(nextValue)
+              if (routeCorridorDestinationFilter) {
+                setRouteCorridorDestinationFilter('')
+              }
+            }}
+            placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+          />
+          <WilayaSearch
+            label={tr(uiLanguage, 'Passes through (Second wilaya)', 'Passe par (Deuxieme wilaya)')}
+            value={routeCorridorDestinationFilter}
+            onChange={(nextValue) => setRouteCorridorDestinationFilter(nextValue)}
+            placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+            referenceWilaya={routeCorridorOriginFilter}
+          />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Between Wilayas (First wilaya)', 'Entre deux wilayas (Premiere wilaya)')}</label>
-            <input
-              type="text"
-              value={routeBetweenWilaya1Filter}
-              onChange={(e) => {
-                setRouteBetweenWilaya1Filter(e.target.value)
-                if (routeBetweenWilaya2Filter && !e.target.value) {
-                  setRouteBetweenWilaya2Filter('')
-                }
-              }}
-              placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
-              className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Between Wilayas (Second wilaya)', 'Entre deux wilayas (Deuxieme wilaya)')}</label>
-            <input
-              type="text"
-              value={routeBetweenWilaya2Filter}
-              onChange={(e) => setRouteBetweenWilaya2Filter(e.target.value)}
-              placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
-              className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-          </div>
+          <WilayaSearch
+            label={tr(uiLanguage, 'Between Wilayas (First wilaya)', 'Entre deux wilayas (Premiere wilaya)')}
+            value={routeBetweenWilaya1Filter}
+            onChange={(nextValue) => {
+              setRouteBetweenWilaya1Filter(nextValue)
+              if (routeBetweenWilaya2Filter && !nextValue) {
+                setRouteBetweenWilaya2Filter('')
+              }
+            }}
+            placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+          />
+          <WilayaSearch
+            label={tr(uiLanguage, 'Between Wilayas (Second wilaya)', 'Entre deux wilayas (Deuxieme wilaya)')}
+            value={routeBetweenWilaya2Filter}
+            onChange={(nextValue) => setRouteBetweenWilaya2Filter(nextValue)}
+            placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+            referenceWilaya={routeBetweenWilaya1Filter}
+          />
         </div>
         <div className="flex gap-3 mb-4">
           <button
