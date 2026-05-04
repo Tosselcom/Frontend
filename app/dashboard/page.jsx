@@ -25,7 +25,6 @@ import {
   PhoneCall,
 } from 'lucide-react'
 import DashboardSidebar from '@/components/dashboard-sidebar'
-import WilayaSelector from '@/components/ui/wilaya-selector'
 import { discoverApiBaseUrl, getApiBaseUrl, getApiUrl } from '@/lib/api'
 
 const DEFAULT_USER = { name: 'John User', email: 'john@tosselcom.com', role: 'shared', photo: '' }
@@ -542,6 +541,8 @@ export default function DashboardPage() {
   const [routeBetweenWilaya2Filter, setRouteBetweenWilaya2Filter] = useState('')
   const [routeCapacityFilter, setRouteCapacityFilter] = useState('')
   const [routeVehicleTypeFilter, setRouteVehicleTypeFilter] = useState('')
+  const [postDateFilterStart, setPostDateFilterStart] = useState('')
+  const [postDateFilterEnd, setPostDateFilterEnd] = useState('')
 
   const [detailView, setDetailView] = useState({ type: null, id: null })
   const realtimeSocketRef = useRef(null)
@@ -1985,49 +1986,64 @@ export default function DashboardPage() {
 
   // Section-level filters (shipments: mirror availability/route filters + corridor support)
   const filteredShipments = useMemo(
-    () => shipmentItems.filter((item) => matchesPostFilters(item, {
-      originFilterValue: shipmentOriginFilter,
-      destinationFilterValue: shipmentDestinationFilter,
-      wilayaFilterValue: shipmentWilayaFilter,
-      corridorOriginFilterValue: shipmentCorridorOriginFilter,
-      corridorDestinationFilterValue: shipmentCorridorDestinationFilter,
-      betweenWilaya1FilterValue: shipmentBetweenWilaya1Filter,
-      betweenWilaya2FilterValue: shipmentBetweenWilaya2Filter,
-      capacityFilterValue: shipmentCapacityFilter,
-      getOrigin: (post) => post.origin,
-      getDestination: (post) => post.destination,
-      getWaypoints: (post) => getRouteWaypoints(post.origin, '', post.destination),
-      getCapacity: (post) => post.capacity,
-      getAvailableCity: null,
-    })),
-    [shipmentItems, shipmentOriginFilter, shipmentDestinationFilter, shipmentWilayaFilter, shipmentCorridorOriginFilter, shipmentCorridorDestinationFilter, shipmentBetweenWilaya1Filter, shipmentBetweenWilaya2Filter, shipmentCapacityFilter]
+    () => shipmentItems.filter((item) =>
+      postMatchesDateRange(item, postDateFilterStart, postDateFilterEnd, (post) => ({
+        start: post.date,
+        end: post.date,
+      }))
+      && matchesPostFilters(item, {
+        originFilterValue: shipmentOriginFilter,
+        destinationFilterValue: shipmentDestinationFilter,
+        wilayaFilterValue: shipmentWilayaFilter,
+        corridorOriginFilterValue: shipmentCorridorOriginFilter,
+        corridorDestinationFilterValue: shipmentCorridorDestinationFilter,
+        betweenWilaya1FilterValue: shipmentBetweenWilaya1Filter,
+        betweenWilaya2FilterValue: shipmentBetweenWilaya2Filter,
+        capacityFilterValue: shipmentCapacityFilter,
+        getOrigin: (post) => post.origin,
+        getDestination: (post) => post.destination,
+        getWaypoints: (post) => getRouteWaypoints(post.origin, '', post.destination),
+        getCapacity: (post) => post.capacity,
+        getAvailableCity: null,
+      })),
+    [shipmentItems, shipmentOriginFilter, shipmentDestinationFilter, shipmentWilayaFilter, shipmentCorridorOriginFilter, shipmentCorridorDestinationFilter, shipmentBetweenWilaya1Filter, shipmentBetweenWilaya2Filter, shipmentCapacityFilter, postDateFilterStart, postDateFilterEnd]
   )
 
   const filteredRoutes = useMemo(
-    () => routeItems.filter((item) => matchesPostFilters(item, {
-      originFilterValue: routeOriginFilter,
-      destinationFilterValue: routeDestinationFilter,
-      wilayaFilterValue: routeWilayaFilter,
-      corridorOriginFilterValue: routeCorridorOriginFilter,
-      corridorDestinationFilterValue: routeCorridorDestinationFilter,
-      betweenWilaya1FilterValue: routeBetweenWilaya1Filter,
-      betweenWilaya2FilterValue: routeBetweenWilaya2Filter,
-      capacityFilterValue: routeCapacityFilter,
-      vehicleTypeFilterValue: routeVehicleTypeFilter,
-      capacityComparator: 'gte',
-      typeMatches:
-        routeTypeFilter === 'all'
-        || (routeTypeFilter === 'availability_only' && item.postType === 'availability_only')
-        || (routeTypeFilter === 'full_route' && item.postType === 'full_route')
-        || (routeTypeFilter === 'live_truckers' && item.isLive),
-      getOrigin: (post) => post.from,
-      getDestination: (post) => post.to,
-      getWaypoints: (post) => getRouteWaypoints(post.from, post.availableCity, post.to),
-      getCapacity: (post) => post.available,
-      getAvailableCity: (post) => post.availableCity,
-      corridorSegmentValue: item?.availableCity || '',
-    })),
-    [routeItems, routeOriginFilter, routeDestinationFilter, routeWilayaFilter, routeCorridorOriginFilter, routeCorridorDestinationFilter, routeBetweenWilaya1Filter, routeBetweenWilaya2Filter, routeCapacityFilter, routeVehicleTypeFilter, routeTypeFilter]
+    () => routeItems.filter((item) =>
+      postMatchesDateRange(item, postDateFilterStart, postDateFilterEnd, (post) => {
+        const isAvailabilityOnly = post.postType === 'availability_only'
+        if (isAvailabilityOnly) {
+          const interval = parseAvailabilityDateInterval(post.routeDateRaw || post.departure)
+          return { start: interval.start, end: interval.end }
+        }
+
+        const routeDate = getDateKey(post.routeDateRaw || post.departure)
+        return { start: routeDate, end: routeDate }
+      })
+      && matchesPostFilters(item, {
+        originFilterValue: routeOriginFilter,
+        destinationFilterValue: routeDestinationFilter,
+        wilayaFilterValue: routeWilayaFilter,
+        corridorOriginFilterValue: routeCorridorOriginFilter,
+        corridorDestinationFilterValue: routeCorridorDestinationFilter,
+        betweenWilaya1FilterValue: routeBetweenWilaya1Filter,
+        betweenWilaya2FilterValue: routeBetweenWilaya2Filter,
+        capacityFilterValue: routeCapacityFilter,
+        vehicleTypeFilterValue: routeVehicleTypeFilter,
+        capacityComparator: 'gte',
+        typeMatches:
+          routeTypeFilter === 'all'
+          || (routeTypeFilter === 'availability_only' && item.postType === 'availability_only')
+          || (routeTypeFilter === 'full_route' && item.postType === 'full_route'),
+        getOrigin: (post) => post.from,
+        getDestination: (post) => post.to,
+        getWaypoints: (post) => getRouteWaypoints(post.from, post.availableCity, post.to),
+        getCapacity: (post) => post.available,
+        getAvailableCity: (post) => post.availableCity,
+        corridorSegmentValue: item?.availableCity || '',
+      })),
+    [routeItems, routeOriginFilter, routeDestinationFilter, routeWilayaFilter, routeCorridorOriginFilter, routeCorridorDestinationFilter, routeBetweenWilaya1Filter, routeBetweenWilaya2Filter, routeCapacityFilter, routeVehicleTypeFilter, routeTypeFilter, postDateFilterStart, postDateFilterEnd]
   )
 
   return (
@@ -2244,6 +2260,8 @@ export default function DashboardPage() {
                     routeItems={routeItems}
                     isInvitationSent={isInvitationSent}
                     currentUserKey={currentUserKey}
+                    postDateFilterStart={postDateFilterStart}
+                    postDateFilterEnd={postDateFilterEnd}
                     shipmentOriginFilter={shipmentOriginFilter}
                     shipmentDestinationFilter={shipmentDestinationFilter}
                     shipmentWilayaFilter={shipmentWilayaFilter}
@@ -2260,6 +2278,8 @@ export default function DashboardPage() {
                     setShipmentBetweenWilaya1Filter={setShipmentBetweenWilaya1Filter}
                     setShipmentBetweenWilaya2Filter={setShipmentBetweenWilaya2Filter}
                     setShipmentCapacityFilter={setShipmentCapacityFilter}
+                    setPostDateFilterStart={setPostDateFilterStart}
+                    setPostDateFilterEnd={setPostDateFilterEnd}
                     advanceShipmentStatus={advanceShipmentStatus}
                     deleteShipment={deleteShipment}
                     contactShipper={contactShipper}
@@ -2278,6 +2298,8 @@ export default function DashboardPage() {
                     currentUserKey={currentUserKey}
                     routeTypeFilter={routeTypeFilter}
                     setRouteTypeFilter={setRouteTypeFilter}
+                    postDateFilterStart={postDateFilterStart}
+                    postDateFilterEnd={postDateFilterEnd}
                     routeOriginFilter={routeOriginFilter}
                     routeDestinationFilter={routeDestinationFilter}
                     routeWilayaFilter={routeWilayaFilter}
@@ -2296,6 +2318,8 @@ export default function DashboardPage() {
                     setRouteBetweenWilaya2Filter={setRouteBetweenWilaya2Filter}
                     setRouteCapacityFilter={setRouteCapacityFilter}
                     setRouteVehicleTypeFilter={setRouteVehicleTypeFilter}
+                    setPostDateFilterStart={setPostDateFilterStart}
+                    setPostDateFilterEnd={setPostDateFilterEnd}
                     deleteRoute={deleteRoute}
                     contactShipper={contactShipper}
                     toggleRouteDetails={toggleRouteDetails}
@@ -2397,33 +2421,44 @@ export default function DashboardPage() {
             <div className="space-y-4">
               {routePostType === 'full_route' && (
                 <>
-                  <WilayaSelector
-                    label={tr(uiLanguage, 'From (City)', 'Depuis (Ville)')}
-                    value={formData.from}
-                    onChange={(nextValue) => setFormData({ ...formData, from: nextValue })}
-                    placeholder={tr(uiLanguage, 'Select departure wilaya', 'Selectionnez la wilaya de depart')}
-                    required
-                  />
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'From (City)', 'Depuis (Ville)')}</label>
+                    <input
+                      type="text"
+                      value={formData.from}
+                      onChange={(e) => setFormData({ ...formData, from: e.target.value })}
+                      placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+                      className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                      required
+                    />
+                  </div>
                   
-                  <WilayaSelector
-                    label={tr(uiLanguage, 'To (City)', 'Vers (Ville)')}
-                    value={formData.to}
-                    onChange={(nextValue) => setFormData({ ...formData, to: nextValue })}
-                    placeholder={tr(uiLanguage, 'Select destination wilaya', 'Selectionnez la wilaya de destination')}
-                    referenceWilaya={formData.from}
-                    required
-                  />
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'To (City)', 'Vers (Ville)')}</label>
+                    <input
+                      type="text"
+                      value={formData.to}
+                      onChange={(e) => setFormData({ ...formData, to: e.target.value })}
+                      placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+                      className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                      required
+                    />
+                  </div>
                 </>
               )}
 
               {routePostType === 'availability_only' && (
-                <WilayaSelector
-                  label={tr(uiLanguage, 'Availability City', 'Ville de disponibilite')}
-                  value={formData.availableCity}
-                  onChange={(nextValue) => setFormData({ ...formData, availableCity: nextValue })}
-                  placeholder={tr(uiLanguage, 'Select your availability city', 'Selectionnez votre ville de disponibilite')}
-                  required
-                />
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Availability City', 'Ville de disponibilite')}</label>
+                  <input
+                    type="text"
+                    value={formData.availableCity}
+                    onChange={(e) => setFormData({ ...formData, availableCity: e.target.value })}
+                    placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+                    className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    required
+                  />
+                </div>
               )}
 
               <div>
@@ -2652,22 +2687,29 @@ export default function DashboardPage() {
                 />
               </div>
 
-              <WilayaSelector
-                label={tr(uiLanguage, 'From (City)', 'Depuis (Ville)')}
-                value={shipmentFormData.origin}
-                onChange={(nextValue) => setShipmentFormData({ ...shipmentFormData, origin: nextValue })}
-                placeholder={tr(uiLanguage, 'Select origin wilaya', 'Selectionnez la wilaya d origine')}
-                required
-              />
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'From (City)', 'Depuis (Ville)')}</label>
+                <input
+                  type="text"
+                  value={shipmentFormData.origin}
+                  onChange={(e) => setShipmentFormData({ ...shipmentFormData, origin: e.target.value })}
+                  placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+                  className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                  required
+                />
+              </div>
               
-              <WilayaSelector
-                label={tr(uiLanguage, 'To (City)', 'Vers (Ville)')}
-                value={shipmentFormData.destination}
-                onChange={(nextValue) => setShipmentFormData({ ...shipmentFormData, destination: nextValue })}
-                placeholder={tr(uiLanguage, 'Select destination wilaya', 'Selectionnez la wilaya de destination')}
-                referenceWilaya={shipmentFormData.origin}
-                required
-              />
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'To (City)', 'Vers (Ville)')}</label>
+                <input
+                  type="text"
+                  value={shipmentFormData.destination}
+                  onChange={(e) => setShipmentFormData({ ...shipmentFormData, destination: e.target.value })}
+                  placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+                  className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                  required
+                />
+              </div>
               
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Weight (kg)', 'Poids (kg)')}</label>
@@ -2965,6 +3007,8 @@ function ShipmentsSection({
   routeItems,
   isInvitationSent,
   currentUserKey,
+  postDateFilterStart,
+  postDateFilterEnd,
   shipmentOriginFilter,
   shipmentDestinationFilter,
   shipmentWilayaFilter,
@@ -2981,6 +3025,8 @@ function ShipmentsSection({
   setShipmentBetweenWilaya1Filter,
   setShipmentBetweenWilaya2Filter,
   setShipmentCapacityFilter,
+  setPostDateFilterStart,
+  setPostDateFilterEnd,
   advanceShipmentStatus,
   deleteShipment,
   contactShipper,
@@ -2989,6 +3035,7 @@ function ShipmentsSection({
 }) {
   const shipmentsTitle = tr(uiLanguage, 'Delivery Posts - I Need a Delivery', 'Demandes de livraison - J ai besoin d une livraison', '  -   ')
   const [shipmentViewScope, setShipmentViewScope] = useState('mine')
+  const [showShipmentFilters, setShowShipmentFilters] = useState(false)
 
   const myShipments = filteredShipments.filter((shipment) => getPostOwnerKey(shipment) === currentUserKey)
   const communityShipments = filteredShipments.filter((shipment) => getPostOwnerKey(shipment) !== currentUserKey)
@@ -3040,6 +3087,19 @@ function ShipmentsSection({
             </span>
           )}
         </div>
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <button
+            onClick={() => setShowShipmentFilters((prev) => !prev)}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-muted text-sm font-medium text-foreground hover:bg-muted/80 transition-colors"
+          >
+            <Settings className="w-4 h-4" />
+            {showShipmentFilters
+              ? tr(uiLanguage, 'Hide filters', 'Masquer les filtres', ' ')
+              : tr(uiLanguage, 'Show filters', 'Afficher les filtres', ' ')}
+          </button>
+        </div>
+        {showShipmentFilters && (
+          <>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
           <input
             type="text"
@@ -3063,51 +3123,101 @@ function ShipmentsSection({
             className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
           />
         </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4 items-center">
+          <div className="flex items-center gap-2">
+          <input
+            type="date"
+            value={postDateFilterStart}
+            onChange={(e) => setPostDateFilterStart(e.target.value)}
+            className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            aria-label={tr(uiLanguage, 'Filter start date', 'Date de debut du filtre')}
+          />
+          <input
+            type="date"
+            value={postDateFilterEnd}
+            onChange={(e) => setPostDateFilterEnd(e.target.value)}
+            className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            aria-label={tr(uiLanguage, 'Filter end date', 'Date de fin du filtre')}
+          />
+          </div>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                setPostDateFilterStart('')
+                setPostDateFilterEnd('')
+              }}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-muted text-sm font-medium text-foreground hover:bg-muted/80 transition-colors"
+              aria-label={tr(uiLanguage, 'Clear date filter', 'Effacer le filtre de dates')}
+              title={tr(uiLanguage, 'Clear date filter', 'Effacer le filtre de dates')}
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-          <WilayaSelector
-            label={tr(uiLanguage, 'Filter by Wilaya', 'Filtrer par Wilaya')}
-            value={shipmentWilayaFilter}
-            onChange={(nextValue) => setShipmentWilayaFilter(nextValue)}
-            placeholder={tr(uiLanguage, 'Select wilaya', 'Selectionnez une wilaya')}
-          />
-          <WilayaSelector
-            label={tr(uiLanguage, 'Passes through (First wilaya)', 'Passe par (Premiere wilaya)')}
-            value={shipmentCorridorOriginFilter}
-            onChange={(nextValue) => {
-              setShipmentCorridorOriginFilter(nextValue)
-              if (shipmentCorridorDestinationFilter) {
-                setShipmentCorridorDestinationFilter('')
-              }
-            }}
-            placeholder={tr(uiLanguage, 'Select first wilaya', 'Selectionnez la premiere wilaya')}
-          />
-          <WilayaSelector
-            label={tr(uiLanguage, 'Passes through (Second wilaya)', 'Passe par (Deuxieme wilaya)')}
-            value={shipmentCorridorDestinationFilter}
-            onChange={(nextValue) => setShipmentCorridorDestinationFilter(nextValue)}
-            placeholder={tr(uiLanguage, 'Select second wilaya', 'Selectionnez la deuxieme wilaya')}
-            referenceWilaya={shipmentCorridorOriginFilter}
-          />
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Filter by Wilaya', 'Filtrer par Wilaya')}</label>
+            <input
+              type="text"
+              value={shipmentWilayaFilter}
+              onChange={(e) => setShipmentWilayaFilter(e.target.value)}
+              placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+              className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Passes through (First wilaya)', 'Passe par (Premiere wilaya)')}</label>
+            <input
+              type="text"
+              value={shipmentCorridorOriginFilter}
+              onChange={(e) => {
+                setShipmentCorridorOriginFilter(e.target.value)
+                if (shipmentCorridorDestinationFilter) {
+                  setShipmentCorridorDestinationFilter('')
+                }
+              }}
+              placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+              className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Passes through (Second wilaya)', 'Passe par (Deuxieme wilaya)')}</label>
+            <input
+              type="text"
+              value={shipmentCorridorDestinationFilter}
+              onChange={(e) => setShipmentCorridorDestinationFilter(e.target.value)}
+              placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+              className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+          </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-          <WilayaSelector
-            label={tr(uiLanguage, 'Between Wilayas (First wilaya)', 'Entre deux wilayas (Premiere wilaya)')}
-            value={shipmentBetweenWilaya1Filter}
-            onChange={(nextValue) => {
-              setShipmentBetweenWilaya1Filter(nextValue)
-              if (shipmentBetweenWilaya2Filter && !nextValue) {
-                setShipmentBetweenWilaya2Filter('')
-              }
-            }}
-            placeholder={tr(uiLanguage, 'Select first wilaya', 'Selectionnez la premiere wilaya')}
-          />
-          <WilayaSelector
-            label={tr(uiLanguage, 'Between Wilayas (Second wilaya)', 'Entre deux wilayas (Deuxieme wilaya)')}
-            value={shipmentBetweenWilaya2Filter}
-            onChange={(nextValue) => setShipmentBetweenWilaya2Filter(nextValue)}
-            placeholder={tr(uiLanguage, 'Select second wilaya', 'Selectionnez la deuxieme wilaya')}
-            referenceWilaya={shipmentBetweenWilaya1Filter}
-          />
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Between Wilayas (First wilaya)', 'Entre deux wilayas (Premiere wilaya)')}</label>
+            <input
+              type="text"
+              value={shipmentBetweenWilaya1Filter}
+              onChange={(e) => {
+                setShipmentBetweenWilaya1Filter(e.target.value)
+                if (shipmentBetweenWilaya2Filter && !e.target.value) {
+                  setShipmentBetweenWilaya2Filter('')
+                }
+              }}
+              placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+              className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Between Wilayas (Second wilaya)', 'Entre deux wilayas (Deuxieme wilaya)')}</label>
+            <input
+              type="text"
+              value={shipmentBetweenWilaya2Filter}
+              onChange={(e) => setShipmentBetweenWilaya2Filter(e.target.value)}
+              placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+              className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+          </div>
         </div>
         <div className="flex gap-3 mb-4">
           <button
@@ -3120,12 +3230,16 @@ function ShipmentsSection({
               setShipmentBetweenWilaya1Filter('')
               setShipmentBetweenWilaya2Filter('')
               setShipmentCapacityFilter('')
+              setPostDateFilterStart('')
+              setPostDateFilterEnd('')
             }}
             className="px-3 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 transition-colors text-sm font-medium"
           >
             {tr(uiLanguage, 'Clear filters', 'Effacer les filtres', ' ')}
           </button>
         </div>
+          </>
+        )}
         <div className="mb-4 flex flex-wrap gap-2 rounded-lg bg-muted p-1 w-fit">
           <button
             onClick={() => setShipmentViewScope('mine')}
@@ -3192,6 +3306,8 @@ function RoutesSection({
   currentUserKey,
   routeTypeFilter,
   setRouteTypeFilter,
+  postDateFilterStart,
+  postDateFilterEnd,
   routeOriginFilter,
   routeDestinationFilter,
   routeWilayaFilter,
@@ -3210,6 +3326,8 @@ function RoutesSection({
   setRouteBetweenWilaya2Filter,
   setRouteCapacityFilter,
   setRouteVehicleTypeFilter,
+  setPostDateFilterStart,
+  setPostDateFilterEnd,
   deleteRoute,
   contactShipper,
   toggleRouteDetails,
@@ -3217,6 +3335,7 @@ function RoutesSection({
 }) {
   const routesTitle = tr(uiLanguage, 'Availability Posts - I am Available', 'Publications disponibilite - Je suis disponible', '  -  ')
   const [routeViewScope, setRouteViewScope] = useState('mine')
+  const [showRouteFilters, setShowRouteFilters] = useState(false)
 
   const myRoutes = filteredRoutes.filter((route) => getPostOwnerKey(route) === currentUserKey)
   const communityRoutes = filteredRoutes.filter((route) => getPostOwnerKey(route) !== currentUserKey)
@@ -3268,6 +3387,19 @@ function RoutesSection({
             </span>
           )}
         </div>
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <button
+            onClick={() => setShowRouteFilters((prev) => !prev)}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-muted text-sm font-medium text-foreground hover:bg-muted/80 transition-colors"
+          >
+            <Settings className="w-4 h-4" />
+            {showRouteFilters
+              ? tr(uiLanguage, 'Hide filters', 'Masquer les filtres', ' ')
+              : tr(uiLanguage, 'Show filters', 'Afficher les filtres', ' ')}
+          </button>
+        </div>
+        {showRouteFilters && (
+          <>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
           <input
             type="text"
@@ -3303,51 +3435,101 @@ function RoutesSection({
             ))}
           </select>
         </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4 items-center">
+          <div className="flex items-center gap-2">
+          <input
+            type="date"
+            value={postDateFilterStart}
+            onChange={(e) => setPostDateFilterStart(e.target.value)}
+            className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            aria-label={tr(uiLanguage, 'Filter start date', 'Date de debut du filtre')}
+          />
+          <input
+            type="date"
+            value={postDateFilterEnd}
+            onChange={(e) => setPostDateFilterEnd(e.target.value)}
+            className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            aria-label={tr(uiLanguage, 'Filter end date', 'Date de fin du filtre')}
+          />
+          </div>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                setPostDateFilterStart('')
+                setPostDateFilterEnd('')
+              }}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-muted text-sm font-medium text-foreground hover:bg-muted/80 transition-colors"
+              aria-label={tr(uiLanguage, 'Clear date filter', 'Effacer le filtre de dates')}
+              title={tr(uiLanguage, 'Clear date filter', 'Effacer le filtre de dates')}
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-          <WilayaSelector
-            label={tr(uiLanguage, 'Filter by Wilaya', 'Filtrer par Wilaya')}
-            value={routeWilayaFilter}
-            onChange={(nextValue) => setRouteWilayaFilter(nextValue)}
-            placeholder={tr(uiLanguage, 'Select wilaya', 'Selectionnez une wilaya')}
-          />
-          <WilayaSelector
-            label={tr(uiLanguage, 'Passes through (First wilaya)', 'Passe par (Premiere wilaya)')}
-            value={routeCorridorOriginFilter}
-            onChange={(nextValue) => {
-              setRouteCorridorOriginFilter(nextValue)
-              if (routeCorridorDestinationFilter) {
-                setRouteCorridorDestinationFilter('')
-              }
-            }}
-            placeholder={tr(uiLanguage, 'Select first wilaya', 'Selectionnez la premiere wilaya')}
-          />
-          <WilayaSelector
-            label={tr(uiLanguage, 'Passes through (Second wilaya)', 'Passe par (Deuxieme wilaya)')}
-            value={routeCorridorDestinationFilter}
-            onChange={(nextValue) => setRouteCorridorDestinationFilter(nextValue)}
-            placeholder={tr(uiLanguage, 'Select second wilaya', 'Selectionnez la deuxieme wilaya')}
-            referenceWilaya={routeCorridorOriginFilter}
-          />
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Filter by Wilaya', 'Filtrer par Wilaya')}</label>
+            <input
+              type="text"
+              value={routeWilayaFilter}
+              onChange={(e) => setRouteWilayaFilter(e.target.value)}
+              placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+              className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Passes through (First wilaya)', 'Passe par (Premiere wilaya)')}</label>
+            <input
+              type="text"
+              value={routeCorridorOriginFilter}
+              onChange={(e) => {
+                setRouteCorridorOriginFilter(e.target.value)
+                if (routeCorridorDestinationFilter) {
+                  setRouteCorridorDestinationFilter('')
+                }
+              }}
+              placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+              className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Passes through (Second wilaya)', 'Passe par (Deuxieme wilaya)')}</label>
+            <input
+              type="text"
+              value={routeCorridorDestinationFilter}
+              onChange={(e) => setRouteCorridorDestinationFilter(e.target.value)}
+              placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+              className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+          </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-          <WilayaSelector
-            label={tr(uiLanguage, 'Between Wilayas (First wilaya)', 'Entre deux wilayas (Premiere wilaya)')}
-            value={routeBetweenWilaya1Filter}
-            onChange={(nextValue) => {
-              setRouteBetweenWilaya1Filter(nextValue)
-              if (routeBetweenWilaya2Filter && !nextValue) {
-                setRouteBetweenWilaya2Filter('')
-              }
-            }}
-            placeholder={tr(uiLanguage, 'Select first wilaya', 'Selectionnez la premiere wilaya')}
-          />
-          <WilayaSelector
-            label={tr(uiLanguage, 'Between Wilayas (Second wilaya)', 'Entre deux wilayas (Deuxieme wilaya)')}
-            value={routeBetweenWilaya2Filter}
-            onChange={(nextValue) => setRouteBetweenWilaya2Filter(nextValue)}
-            placeholder={tr(uiLanguage, 'Select second wilaya', 'Selectionnez la deuxieme wilaya')}
-            referenceWilaya={routeBetweenWilaya1Filter}
-          />
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Between Wilayas (First wilaya)', 'Entre deux wilayas (Premiere wilaya)')}</label>
+            <input
+              type="text"
+              value={routeBetweenWilaya1Filter}
+              onChange={(e) => {
+                setRouteBetweenWilaya1Filter(e.target.value)
+                if (routeBetweenWilaya2Filter && !e.target.value) {
+                  setRouteBetweenWilaya2Filter('')
+                }
+              }}
+              placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+              className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Between Wilayas (Second wilaya)', 'Entre deux wilayas (Deuxieme wilaya)')}</label>
+            <input
+              type="text"
+              value={routeBetweenWilaya2Filter}
+              onChange={(e) => setRouteBetweenWilaya2Filter(e.target.value)}
+              placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
+              className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+          </div>
         </div>
         <div className="flex gap-3 mb-4">
           <button
@@ -3362,12 +3544,16 @@ function RoutesSection({
               setRouteCapacityFilter('')
               setRouteVehicleTypeFilter('')
               setRouteTypeFilter('all')
+              setPostDateFilterStart('')
+              setPostDateFilterEnd('')
             }}
             className="px-3 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 transition-colors text-sm font-medium"
           >
             {tr(uiLanguage, 'Clear filters', 'Effacer les filtres', ' ')}
           </button>
         </div>
+          </>
+        )}
         <div className="mb-5 flex flex-wrap gap-2 rounded-lg bg-muted p-1 w-fit">
           <button
             onClick={() => setRouteTypeFilter('all')}
@@ -3386,12 +3572,6 @@ function RoutesSection({
             className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${routeTypeFilter === 'full_route' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-background/80'}`}
           >
             {tr(uiLanguage, 'Full route', 'Trajet complet', ' ')}
-          </button>
-          <button
-            onClick={() => setRouteTypeFilter('live_truckers')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${routeTypeFilter === 'live_truckers' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-background/80'}`}
-          >
-            {tr(uiLanguage, 'Live truckers', 'Transporteurs en direct', ' ')}
           </button>
         </div>
         <div className="mb-4 flex flex-wrap gap-2 rounded-lg bg-muted p-1 w-fit">
@@ -3536,9 +3716,7 @@ function MatchingSection({
     : []
 
   const visibleLinkedShipmentRoutes = linkedShipment
-    ? (relevantRouteFilter === 'live_truckers'
-      ? linkedShipmentRelevantRoutes.filter(route => route.isLive)
-      : linkedShipmentRelevantRoutes)
+    ? linkedShipmentRelevantRoutes
     : []
 
   return (
@@ -3980,41 +4158,7 @@ function AnalyticsSection({ uiLanguage, shipmentItems, routeItems, matchingItems
 
   const hasPeriodData = periodShipments.length > 0 || periodRoutes.length > 0
 
-  const handleExportCsv = () => {
-    if (typeof window === 'undefined') return
 
-    const rows = periodShipments.map((shipment) => ({
-      id: shipment.id,
-      itemName: shipment.itemName,
-      origin: shipment.origin,
-      destination: shipment.destination,
-      weight: shipment.weight,
-      status: shipment.status,
-      date: shipment.date,
-    }))
-
-    const headers = ['ID', 'Item', 'Origin', 'Destination', 'Weight', 'Status', 'Date']
-    const csvLines = [
-      headers.join(','),
-      ...rows.map((row) => [
-        row.id,
-        row.itemName,
-        row.origin,
-        row.destination,
-        row.weight,
-        row.status,
-        row.date,
-      ].map((value) => `"${String(value || '').replaceAll('"', '""')}"`).join(',')),
-    ]
-
-    const csvBlob = new Blob([csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' })
-    const url = window.URL.createObjectURL(csvBlob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = `analytics-my-posts-${periodFilter}-${new Date().toISOString().slice(0, 10)}.csv`
-    anchor.click()
-    window.URL.revokeObjectURL(url)
-  }
 
   const loadUtilization = routeMetrics.totalCapacity
     ? Math.round(((routeMetrics.totalCapacity - routeMetrics.totalAvailable) / routeMetrics.totalCapacity) * 100)
@@ -4058,12 +4202,7 @@ function AnalyticsSection({ uiLanguage, shipmentItems, routeItems, matchingItems
             <option value="90d">{tr(uiLanguage, 'Last 90 days', '90 derniers jours', ' 90 ')}</option>
             <option value="all">{tr(uiLanguage, 'All time', 'Toute la periode', ' ')}</option>
           </select>
-          <button
-            onClick={handleExportCsv}
-            className="px-3 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm font-medium"
-          >
-            {tr(uiLanguage, 'Export CSV', 'Exporter CSV', ' CSV')}
-          </button>
+
         </div>
       </div>
       <p className="text-sm text-muted-foreground mt-2">{t('Data window', 'Fenetre de donnees')}: {periodLabel}</p>
@@ -5387,6 +5526,44 @@ function getDateKey(value) {
   return parsed.toISOString().slice(0, 10)
 }
 
+function normalizeDateRangeBounds(startDate, endDate) {
+  const normalizedStart = getDateKey(startDate)
+  const normalizedEnd = getDateKey(endDate)
+
+  if (!normalizedStart && !normalizedEnd) {
+    return { start: '', end: '' }
+  }
+
+  const effectiveStart = normalizedStart || normalizedEnd
+  const effectiveEnd = normalizedEnd || normalizedStart
+
+  if (!effectiveStart || !effectiveEnd) {
+    return { start: '', end: '' }
+  }
+
+  return effectiveStart <= effectiveEnd
+    ? { start: effectiveStart, end: effectiveEnd }
+    : { start: effectiveEnd, end: effectiveStart }
+}
+
+function postMatchesDateRange(post, startDate, endDate, getPostDateRange) {
+  const filterBounds = normalizeDateRangeBounds(startDate, endDate)
+  if (!filterBounds.start || !filterBounds.end) {
+    return true
+  }
+
+  const postBounds = getPostDateRange(post)
+  const postStart = getDateKey(postBounds?.start)
+  const postEnd = getDateKey(postBounds?.end || postBounds?.start)
+
+  if (!postStart) {
+    return false
+  }
+
+  const normalizedPostEnd = postEnd || postStart
+  return postStart >= filterBounds.start && normalizedPostEnd <= filterBounds.end
+}
+
 function parseAvailabilityDateInterval(rawValue) {
   if (!rawValue) return { start: '', end: '' }
 
@@ -6056,9 +6233,7 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
     .sort((a, b) => b.relevanceScore - a.relevanceScore)
 
   const relevantRoutePosts = scoredRelevantRoutePosts
-  const liveRelevantRoutePosts = scoredRelevantRoutePosts
-    .filter(route => route.isLive)
-  const visibleRelevantRoutePosts = relevantRouteFilter === 'live_truckers' ? liveRelevantRoutePosts : relevantRoutePosts
+  const visibleRelevantRoutePosts = relevantRoutePosts
 
   const handleDeleteClick = (event) => {
     event.preventDefault()
@@ -6182,16 +6357,7 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
                 >
                   {t('All', 'Tous')}
                 </button>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    stopCardClick(event)
-                    setRelevantRouteFilter('live_truckers')
-                  }}
-                  className={`px-2 py-1 rounded text-[10px] font-semibold transition-colors ${relevantRouteFilter === 'live_truckers' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-background/80'}`}
-                >
-                  {t('Live truckers', 'Transporteurs en direct')}
-                </button>
+
               </div>
             </div>
             {visibleRelevantRoutePosts.length > 0 ? (
@@ -6204,9 +6370,7 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
               </div>
             ) : (
               <p className="text-xs text-muted-foreground">
-                {relevantRouteFilter === 'live_truckers'
-                  ? t('No relevant live truckers found.', 'Aucun transporteur en direct pertinent trouve.')
-                  : t('No relevant trucker posts found for this route.', 'Aucune publication transporteur pertinente pour ce trajet.')}
+                {t('No relevant trucker posts found for this route.', 'Aucune publication transporteur pertinente pour ce trajet.')}
               </p>
             )}
           </div>
@@ -6562,7 +6726,6 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
 
   const visibleShipmentRelevantRoutes = selectedShipment
     ? shipmentRelevantRoutes.filter((route) => {
-      if (relevantRouteFilter === 'live_truckers') return route.isLive
       if (relevantRouteFilter === 'availability_only') return route.postType === 'availability_only'
       if (relevantRouteFilter === 'full_route') return route.postType !== 'availability_only'
       return true
@@ -6950,12 +7113,7 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
               >
                 {t('All', 'Tous')}
               </button>
-              <button
-                onClick={() => setRelevantRouteFilter('live_truckers')}
-                className={`px-2.5 py-1 rounded text-xs font-semibold transition-colors ${relevantRouteFilter === 'live_truckers' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-background/80'}`}
-              >
-                {t('Live truckers', 'Transporteurs en direct')}
-              </button>
+
               <button
                 onClick={() => setRelevantRouteFilter('availability_only')}
                 className={`px-2.5 py-1 rounded text-xs font-semibold transition-colors ${relevantRouteFilter === 'availability_only' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-background/80'}`}
@@ -7029,9 +7187,7 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
                   </div>
                 )) : (
                   <p className="text-sm text-muted-foreground">
-                    {relevantRouteFilter === 'live_truckers'
-                      ? t('No relevant live full-route posts found.', 'Aucune publication trajet complet en direct pertinente trouvee.')
-                      : t('No relevant full-route posts found.', 'Aucune publication trajet complet pertinente trouvee.')}
+                    {t('No relevant full-route posts found.', 'Aucune publication trajet complet pertinente trouvee.')}
                   </p>
                 ))}
               </div>
@@ -7091,9 +7247,7 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
                   </div>
                 )) : (
                   <p className="text-sm text-muted-foreground">
-                    {relevantRouteFilter === 'live_truckers'
-                      ? t('No relevant live availability-only posts found.', 'Aucune publication disponibilite uniquement en direct pertinente trouvee.')
-                      : t('No relevant availability-only posts found.', 'Aucune publication disponibilite uniquement pertinente trouvee.')}
+                    {t('No relevant availability-only posts found.', 'Aucune publication disponibilite uniquement pertinente trouvee.')}
                   </p>
                 ))}
               </div>
