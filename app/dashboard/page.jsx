@@ -571,6 +571,8 @@ function getDemoDateLabel(monthIndex, day) {
   })
 }
 
+const todayString = new Date().toISOString().split('T')[0]
+
 export default function DashboardPage() {
   const router = useRouter()
   const [user, setUser] = useState(getInitialUser)
@@ -1025,6 +1027,7 @@ export default function DashboardPage() {
       deliveryDate: shipmentFormData.deliveryDate,
       itemCategory: shipmentFormData.category || 'general',
       description: shipmentFormData.description || '',
+      preferredVehicleType: shipmentFormData.preferredVehicleType || null,
     }
 
     console.log('Sending payload to backend:', payload)
@@ -2739,6 +2742,7 @@ export default function DashboardPage() {
                   <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Departure Date', 'Date de depart')}</label>
                   <input
                     type="date"
+                    min={todayString}
                     value={formData.departure}
                     onChange={(e) => setFormData({ ...formData, departure: e.target.value })}
                     className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
@@ -2750,6 +2754,7 @@ export default function DashboardPage() {
                     <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Available From', 'Disponible du')}</label>
                     <input
                       type="date"
+                      min={todayString}
                       value={formData.availabilityStartDate}
                       onChange={(e) => setFormData({ ...formData, availabilityStartDate: e.target.value })}
                       className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
@@ -2759,6 +2764,7 @@ export default function DashboardPage() {
                     <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Available Until', 'Disponible jusqu au')}</label>
                     <input
                       type="date"
+                      min={formData.availabilityStartDate || todayString}
                       value={formData.availabilityEndDate}
                       onChange={(e) => setFormData({ ...formData, availabilityEndDate: e.target.value })}
                       className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
@@ -2868,23 +2874,27 @@ export default function DashboardPage() {
                 <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Delivery Date', 'Date de livraison')}</label>
                 <input
                   type="date"
+                  min={todayString}
                   value={shipmentFormData.deliveryDate}
                   onChange={(e) => setShipmentFormData({ ...shipmentFormData, deliveryDate: e.target.value })}
                   className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Dimensions notes (optional)', 'Notes dimensions (optionnelles)')}</label>
-                  <input
-                    type="text"
-                    placeholder={tr(uiLanguage, 'e.g., fragile corners, max stack 2', 'ex. coins fragiles, empilement max 2')}
-                    value={shipmentFormData.dimensions}
-                    onChange={(e) => setShipmentFormData({ ...shipmentFormData, dimensions: e.target.value })}
-                    className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Preferred Vehicle Type (optional)', 'Type de véhicule préféré (optionnel)')}</label>
+                <select
+                  value={shipmentFormData.preferredVehicleType || ''}
+                  onChange={(e) => setShipmentFormData({ ...shipmentFormData, preferredVehicleType: e.target.value })}
+                  className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="">{tr(uiLanguage, 'Any (No preference)', 'Tous (Pas de préférence)')}</option>
+                  {VEHICLE_TYPE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {tr(uiLanguage, option.en, option.fr)}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -3195,7 +3205,14 @@ function ShipmentsSection({
       <h1 className="text-3xl font-bold text-foreground">{shipmentsTitle}</h1>
       <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-bold text-foreground">{tr(uiLanguage, 'All Delivery Requests', 'Toutes les demandes de livraison', '  ')}</h2>
+          <div>
+            <h2 className="text-xl font-bold text-foreground">{tr(uiLanguage, 'All Delivery Requests', 'Toutes les demandes de livraison', '  ')}</h2>
+            {shipmentViewScope === 'mine' && myShipments.length > 0 && (
+              <p className="text-sm text-muted-foreground mt-1">
+                {tr(uiLanguage, '*Click on a post to see matches/relevant availability posts', '*Cliquez sur une publication pour voir les publications de disponibilites correspondantes', '*Cliquez sur une publication pour voir les publications de disponibilites correspondantes')}
+              </p>
+            )}
+          </div>
           {shipmentViewScope === 'mine' ? (
             <button
               onClick={handleCreateShipment}
@@ -3222,153 +3239,163 @@ function ShipmentsSection({
           </button>
         </div>
         {showShipmentFilters && (
-          <>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
-          <input
-            type="text"
-            placeholder={tr(uiLanguage, 'Search by departure city', 'Rechercher par ville de depart', '   ')}
-            value={shipmentOriginFilter}
-            onChange={(e) => setShipmentOriginFilter(e.target.value)}
-            className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-          />
-          <input
-            type="text"
-            placeholder={tr(uiLanguage, 'Search by destination city', 'Rechercher par ville de destination', '   ')}
-            value={shipmentDestinationFilter}
-            onChange={(e) => setShipmentDestinationFilter(e.target.value)}
-            className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-          />
-          <select
-            value={shipmentCategoryFilter}
-            onChange={(e) => setShipmentCategoryFilter(e.target.value)}
-            className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-          >
-            <option value="">{tr(uiLanguage, 'All item categories', 'Toutes les categories d article', ' ')}</option>
-            <option value="general">{tr(uiLanguage, 'General Goods', 'Marchandises generales')}</option>
-            <option value="furniture">{tr(uiLanguage, 'Furniture', 'Meubles')}</option>
-            <option value="appliances">{tr(uiLanguage, 'Appliances', 'Appareils menagers')}</option>
-            <option value="fragile">{tr(uiLanguage, 'Fragile', 'Fragile')}</option>
-            <option value="perishable">{tr(uiLanguage, 'Perishable', 'Perissable')}</option>
-            <option value="hazardous">{tr(uiLanguage, 'Hazardous', 'Dangereux')}</option>
-            <option value="electronics">{tr(uiLanguage, 'Electronics', 'Electronique')}</option>
-            <option value="construction">{tr(uiLanguage, 'Construction Materials', 'Materiaux de construction')}</option>
-            <option value="other">{tr(uiLanguage, 'Other', 'Autre')}</option>
-          </select>
-          <input
-            type="number"
-            placeholder={tr(uiLanguage, 'Filter by dimensions (m^3 max)', 'Filtrer par dimensions (m^3 max)', '   ')}
-            value={shipmentCapacityFilter}
-            onChange={(e) => setShipmentCapacityFilter(e.target.value)}
-            className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-          />
-          <input
-            type="number"
-            placeholder={tr(uiLanguage, 'Filter by volume (m^3 max)', 'Filtrer par volume (m^3 max)', '   ')}
-            value={shipmentVolumeFilter}
-            onChange={(e) => setShipmentVolumeFilter(e.target.value)}
-            className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-          />
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4 items-center">
-          <div className="flex items-center gap-2">
-          <input
-            type="date"
-            value={postDateFilterStart}
-            onChange={(e) => setPostDateFilterStart(e.target.value)}
-            className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            aria-label={tr(uiLanguage, 'Filter start date', 'Date de debut du filtre')}
-          />
-          <input
-            type="date"
-            value={postDateFilterEnd}
-            onChange={(e) => setPostDateFilterEnd(e.target.value)}
-            className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            aria-label={tr(uiLanguage, 'Filter end date', 'Date de fin du filtre')}
-          />
+          <div className="bg-card border border-border rounded-xl p-4 sm:p-5 shadow-sm space-y-5 mb-6">
+            <div>
+              <p className="text-sm font-semibold text-foreground mb-3">{tr(uiLanguage, 'Location & Route', 'Localisation et Trajet')}</p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 gap-y-3 mb-4 items-start">
+                <input
+                  type="text"
+                  placeholder={tr(uiLanguage, 'Search by departure city', 'Rechercher par ville de depart')}
+                  value={shipmentOriginFilter}
+                  onChange={(e) => setShipmentOriginFilter(e.target.value)}
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary h-10"
+                />
+                <input
+                  type="text"
+                  placeholder={tr(uiLanguage, 'Search by destination city', 'Rechercher par ville de destination')}
+                  value={shipmentDestinationFilter}
+                  onChange={(e) => setShipmentDestinationFilter(e.target.value)}
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary h-10"
+                />
+                <WilayaSelectorMulti
+                  label=""
+                  values={shipmentWilayaFilters}
+                  onChange={(nextValues) => setShipmentWilayaFilters(nextValues)}
+                  placeholder={tr(uiLanguage, 'Passes by Wilayas', 'Passer par les Wilayas')}
+                />
+              </div>
+              
+              <div className="mb-4">
+                <div className="mb-2">
+                  <p className="text-sm font-medium text-muted-foreground">{tr(uiLanguage, 'Passes through the route', 'Passe par le trajet')}</p>
+                  <p className="text-xs text-muted-foreground/80">{tr(uiLanguage, '(Must pass this route in this exact order)', '(Doit passer par ce trajet dans cet ordre exact)')}</p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
+                  <WilayaSearch
+                    label=""
+                    value={shipmentCorridorOriginFilter}
+                    onChange={(nextValue) => {
+                      setShipmentCorridorOriginFilter(nextValue)
+                      if (shipmentCorridorDestinationFilter) setShipmentCorridorDestinationFilter('')
+                    }}
+                    placeholder={tr(uiLanguage, 'Departure wilaya', 'Wilaya de depart')}
+                  />
+                  <WilayaSearch
+                    label=""
+                    value={shipmentCorridorDestinationFilter}
+                    onChange={(nextValue) => setShipmentCorridorDestinationFilter(nextValue)}
+                    placeholder={tr(uiLanguage, 'Destination wilaya', 'Wilaya de destination')}
+                    referenceWilaya={shipmentCorridorOriginFilter}
+                  />
+                </div>
+              </div>
+
+              <div className="mb-2">
+                <p className="text-sm font-medium text-muted-foreground mb-2">{tr(uiLanguage, 'Between Wilayas', 'Entre deux Wilayas')}</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
+                  <WilayaSearch
+                    label=""
+                    value={shipmentBetweenWilaya1Filter}
+                    onChange={(nextValue) => {
+                      setShipmentBetweenWilaya1Filter(nextValue)
+                      if (shipmentBetweenWilaya2Filter && !nextValue) setShipmentBetweenWilaya2Filter('')
+                    }}
+                    placeholder={tr(uiLanguage, 'First wilaya', 'Premiere wilaya')}
+                  />
+                  <WilayaSearch
+                    label=""
+                    value={shipmentBetweenWilaya2Filter}
+                    onChange={(nextValue) => setShipmentBetweenWilaya2Filter(nextValue)}
+                    placeholder={tr(uiLanguage, 'Second wilaya', 'Deuxieme wilaya')}
+                    referenceWilaya={shipmentBetweenWilaya1Filter}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-border pt-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div>
+                <p className="text-sm font-semibold text-foreground mb-3">{tr(uiLanguage, 'Cargo Details', 'Details de la Cargaison')}</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <select
+                    value={shipmentCategoryFilter}
+                    onChange={(e) => setShipmentCategoryFilter(e.target.value)}
+                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  >
+                    <option value="">{tr(uiLanguage, 'All types', 'Tous les types')}</option>
+                    <option value="general">{tr(uiLanguage, 'General Goods', 'Marchandises generales')}</option>
+                    <option value="furniture">{tr(uiLanguage, 'Furniture', 'Meubles')}</option>
+                    <option value="appliances">{tr(uiLanguage, 'Appliances', 'Appareils menagers')}</option>
+                    <option value="fragile">{tr(uiLanguage, 'Fragile', 'Fragile')}</option>
+                    <option value="perishable">{tr(uiLanguage, 'Perishable', 'Perissable')}</option>
+                    <option value="hazardous">{tr(uiLanguage, 'Hazardous', 'Dangereux')}</option>
+                    <option value="electronics">{tr(uiLanguage, 'Electronics', 'Electronique')}</option>
+                    <option value="construction">{tr(uiLanguage, 'Construction Materials', 'Materiaux de construction')}</option>
+                    <option value="other">{tr(uiLanguage, 'Other', 'Autre')}</option>
+                  </select>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder={tr(uiLanguage, 'Max dim (m^3)', 'Dim max (m^3)')}
+                    value={shipmentCapacityFilter}
+                    onChange={(e) => setShipmentCapacityFilter(e.target.value)}
+                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder={tr(uiLanguage, 'Max volume (m^3)', 'Volume max (m^3)')}
+                    value={shipmentVolumeFilter}
+                    onChange={(e) => setShipmentVolumeFilter(e.target.value)}
+                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                </div>
+              </div>
+              
+              <div>
+                <p className="text-sm font-semibold text-foreground mb-3">{tr(uiLanguage, 'Date Range', 'Plage de Dates')}</p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={postDateFilterStart}
+                    onChange={(e) => setPostDateFilterStart(e.target.value)}
+                    className="flex-1 px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                  <span className="text-muted-foreground text-sm">-</span>
+                  <input
+                    type="date"
+                    min={postDateFilterStart || ''}
+                    value={postDateFilterEnd}
+                    onChange={(e) => setPostDateFilterEnd(e.target.value)}
+                    className="flex-1 px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end border-t border-border pt-4">
+              <button
+                onClick={() => {
+                  setShipmentOriginFilter('')
+                  setShipmentDestinationFilter('')
+                  setShipmentWilayaFilters([])
+                  setShipmentCategoryFilter('')
+                  setShipmentCorridorOriginFilter('')
+                  setShipmentCorridorDestinationFilter('')
+                  setShipmentBetweenWilaya1Filter('')
+                  setShipmentBetweenWilaya2Filter('')
+                  setShipmentCapacityFilter('')
+                  setShipmentVolumeFilter('')
+                  setPostDateFilterStart('')
+                  setPostDateFilterEnd('')
+                }}
+                className="px-4 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 transition-colors text-sm font-medium inline-flex items-center gap-2"
+              >
+                <X className="w-4 h-4" />
+                {tr(uiLanguage, 'Clear Filters', 'Effacer les Filtres')}
+              </button>
+            </div>
           </div>
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={() => {
-                setPostDateFilterStart('')
-                setPostDateFilterEnd('')
-              }}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-muted text-sm font-medium text-foreground hover:bg-muted/80 transition-colors"
-              aria-label={tr(uiLanguage, 'Clear date filter', 'Effacer le filtre de dates')}
-              title={tr(uiLanguage, 'Clear date filter', 'Effacer le filtre de dates')}
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-          <WilayaSelectorMulti
-            label={tr(uiLanguage, 'Filter by Wilaya', 'Filtrer par Wilaya')}
-            values={shipmentWilayaFilters}
-            onChange={(nextValues) => setShipmentWilayaFilters(nextValues)}
-            placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
-          />
-          <WilayaSearch
-            label={tr(uiLanguage, 'Passes through (First wilaya)', 'Passe par (Premiere wilaya)')}
-            value={shipmentCorridorOriginFilter}
-            onChange={(nextValue) => {
-              setShipmentCorridorOriginFilter(nextValue)
-              if (shipmentCorridorDestinationFilter) {
-                setShipmentCorridorDestinationFilter('')
-              }
-            }}
-            placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
-          />
-          <WilayaSearch
-            label={tr(uiLanguage, 'Passes through (Second wilaya)', 'Passe par (Deuxieme wilaya)')}
-            value={shipmentCorridorDestinationFilter}
-            onChange={(nextValue) => setShipmentCorridorDestinationFilter(nextValue)}
-            placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
-            referenceWilaya={shipmentCorridorOriginFilter}
-          />
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-          <WilayaSearch
-            label={tr(uiLanguage, 'Between Wilayas (First wilaya)', 'Entre deux wilayas (Premiere wilaya)')}
-            value={shipmentBetweenWilaya1Filter}
-            onChange={(nextValue) => {
-              setShipmentBetweenWilaya1Filter(nextValue)
-              if (shipmentBetweenWilaya2Filter && !nextValue) {
-                setShipmentBetweenWilaya2Filter('')
-              }
-            }}
-            placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
-          />
-          <WilayaSearch
-            label={tr(uiLanguage, 'Between Wilayas (Second wilaya)', 'Entre deux wilayas (Deuxieme wilaya)')}
-            value={shipmentBetweenWilaya2Filter}
-            onChange={(nextValue) => setShipmentBetweenWilaya2Filter(nextValue)}
-            placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
-            referenceWilaya={shipmentBetweenWilaya1Filter}
-          />
-        </div>
-        <div className="flex gap-3 mb-4">
-          <button
-            onClick={() => {
-              setShipmentOriginFilter('')
-              setShipmentDestinationFilter('')
-              setShipmentWilayaFilters([])
-              setShipmentCategoryFilter('')
-              setShipmentCorridorOriginFilter('')
-              setShipmentCorridorDestinationFilter('')
-              setShipmentBetweenWilaya1Filter('')
-              setShipmentBetweenWilaya2Filter('')
-              setShipmentCapacityFilter('')
-              setShipmentVolumeFilter('')
-              setPostDateFilterStart('')
-              setPostDateFilterEnd('')
-            }}
-            className="px-3 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 transition-colors text-sm font-medium"
-          >
-            {tr(uiLanguage, 'Clear filters', 'Effacer les filtres', ' ')}
-          </button>
-        </div>
-          </>
         )}
         <div className="mb-4 flex flex-wrap gap-2 rounded-lg bg-muted p-1 w-fit">
           <button
@@ -3517,7 +3544,14 @@ function RoutesSection({
       <h1 className="text-3xl font-bold text-foreground">{routesTitle}</h1>
       <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-bold text-foreground">{tr(uiLanguage, 'All Trucker Posts (Availability only + Full route)', 'Toutes les publications des transporteurs (Disponibilite seule + Trajet complet)', '   (  +  )')}</h2>
+          <div>
+            <h2 className="text-xl font-bold text-foreground">{tr(uiLanguage, 'All Trucker Posts', 'Toutes les publications des transporteurs', '   (  +  )')}</h2>
+            {routeViewScope === 'mine' && myRoutes.length > 0 && (
+              <p className="text-sm text-muted-foreground mt-1">
+                {tr(uiLanguage, '*Click on a post to see matches/relevant delivery posts', '*Cliquez sur une publication pour voir les publications de livraisons correspondantes', '*Cliquez sur une publication pour voir les publications de livraisons correspondantes')}
+              </p>
+            )}
+          </div>
           {routeViewScope === 'mine' ? (
             <button
               onClick={() => handlePostRoute('full_route')}
@@ -3544,147 +3578,157 @@ function RoutesSection({
           </button>
         </div>
         {showRouteFilters && (
-          <>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
-          <input
-            type="text"
-            placeholder={tr(uiLanguage, 'Search by departure city', 'Rechercher par ville de depart', '   ')}
-            value={routeOriginFilter}
-            onChange={(e) => setRouteOriginFilter(e.target.value)}
-            className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-          />
-          <input
-            type="text"
-            placeholder={tr(uiLanguage, 'Search by destination city', 'Rechercher par ville de destination', '   ')}
-            value={routeDestinationFilter}
-            onChange={(e) => setRouteDestinationFilter(e.target.value)}
-            className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-          />
-          <input
-            type="number"
-            placeholder={tr(uiLanguage, 'Search by capacity (kg)', 'Rechercher par capacite (kg)', '   ')}
-            value={routeCapacityFilter}
-            onChange={(e) => setRouteCapacityFilter(e.target.value)}
-            className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-          />
-          <input
-            type="number"
-            placeholder={tr(uiLanguage, 'Search by volume (m^3)', 'Rechercher par volume (m^3)', '   ')}
-            value={routeVolumeFilter}
-            onChange={(e) => setRouteVolumeFilter(e.target.value)}
-            className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-          />
-          <div className="md:col-span-4">
-            <WilayaSelectorMulti
-              label={tr(uiLanguage, 'Vehicle types', 'Types de vehicules')}
-              values={routeVehicleTypeFilters}
-              onChange={(nextValues) => setRouteVehicleTypeFilters(nextValues.slice(0, 5))}
-              placeholder={tr(uiLanguage, 'Search vehicle type', 'Rechercher type de vehicule')}
-              options={VEHICLE_TYPE_OPTIONS.map((option) => ({ id: option.value, name: tr(uiLanguage, option.en, option.fr) }))}
-            />
+          <div className="bg-card border border-border rounded-xl p-4 sm:p-5 shadow-sm space-y-5 mb-6">
+            <div>
+              <p className="text-sm font-semibold text-foreground mb-3">{tr(uiLanguage, 'Location & Route', 'Localisation et Trajet')}</p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 gap-y-3 mb-4 items-start">
+                <input
+                  type="text"
+                  placeholder={tr(uiLanguage, 'Search by departure city', 'Rechercher par ville de depart')}
+                  value={routeOriginFilter}
+                  onChange={(e) => setRouteOriginFilter(e.target.value)}
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary h-10"
+                />
+                <input
+                  type="text"
+                  placeholder={tr(uiLanguage, 'Search by destination city', 'Rechercher par ville de destination')}
+                  value={routeDestinationFilter}
+                  onChange={(e) => setRouteDestinationFilter(e.target.value)}
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary h-10"
+                />
+                <WilayaSelectorMulti
+                  label=""
+                  values={routeWilayaFilters}
+                  onChange={(nextValues) => setRouteWilayaFilters(nextValues)}
+                  placeholder={tr(uiLanguage, 'Passes by Wilayas', 'Passer par les Wilayas')}
+                />
+              </div>
+              
+              <div className="mb-4">
+                <div className="mb-2">
+                  <p className="text-sm font-medium text-muted-foreground">{tr(uiLanguage, 'Passes through the route', 'Passe par le trajet')}</p>
+                  <p className="text-xs text-muted-foreground/80">{tr(uiLanguage, '(Must pass this route in this exact order)', '(Doit passer par ce trajet dans cet ordre exact)')}</p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
+                  <WilayaSearch
+                    label=""
+                    value={routeCorridorOriginFilter}
+                    onChange={(nextValue) => {
+                      setRouteCorridorOriginFilter(nextValue)
+                      if (routeCorridorDestinationFilter) setRouteCorridorDestinationFilter('')
+                    }}
+                    placeholder={tr(uiLanguage, 'Departure wilaya', 'Wilaya de depart')}
+                  />
+                  <WilayaSearch
+                    label=""
+                    value={routeCorridorDestinationFilter}
+                    onChange={(nextValue) => setRouteCorridorDestinationFilter(nextValue)}
+                    placeholder={tr(uiLanguage, 'Destination wilaya', 'Wilaya de destination')}
+                    referenceWilaya={routeCorridorOriginFilter}
+                  />
+                </div>
+              </div>
+
+              <div className="mb-2">
+                <p className="text-sm font-medium text-muted-foreground mb-2">{tr(uiLanguage, 'Between Wilayas', 'Entre deux Wilayas')}</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
+                  <WilayaSearch
+                    label=""
+                    value={routeBetweenWilaya1Filter}
+                    onChange={(nextValue) => {
+                      setRouteBetweenWilaya1Filter(nextValue)
+                      if (routeBetweenWilaya2Filter && !nextValue) setRouteBetweenWilaya2Filter('')
+                    }}
+                    placeholder={tr(uiLanguage, 'First wilaya', 'Premiere wilaya')}
+                  />
+                  <WilayaSearch
+                    label=""
+                    value={routeBetweenWilaya2Filter}
+                    onChange={(nextValue) => setRouteBetweenWilaya2Filter(nextValue)}
+                    placeholder={tr(uiLanguage, 'Second wilaya', 'Deuxieme wilaya')}
+                    referenceWilaya={routeBetweenWilaya1Filter}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-border pt-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div>
+                <p className="text-sm font-semibold text-foreground mb-3">{tr(uiLanguage, 'Vehicle Details', 'Details du Vehicule')}</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder={tr(uiLanguage, 'Min capacity (kg)', 'Capacite min (kg)')}
+                    value={routeCapacityFilter}
+                    onChange={(e) => setRouteCapacityFilter(e.target.value)}
+                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder={tr(uiLanguage, 'Min volume (m^3)', 'Volume min (m^3)')}
+                    value={routeVolumeFilter}
+                    onChange={(e) => setRouteVolumeFilter(e.target.value)}
+                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                </div>
+                <div>
+                  <WilayaSelectorMulti
+                    label=""
+                    values={routeVehicleTypeFilters}
+                    onChange={(nextValues) => setRouteVehicleTypeFilters(nextValues.slice(0, 5))}
+                    placeholder={tr(uiLanguage, 'Search vehicle type', 'Rechercher type de vehicule')}
+                    options={VEHICLE_TYPE_OPTIONS.map((option) => ({ id: option.value, name: tr(uiLanguage, option.en, option.fr) }))}
+                  />
+                </div>
+              </div>
+              
+              <div>
+                <p className="text-sm font-semibold text-foreground mb-3">{tr(uiLanguage, 'Date Range', 'Plage de Dates')}</p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={postDateFilterStart}
+                    onChange={(e) => setPostDateFilterStart(e.target.value)}
+                    className="flex-1 px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                  <span className="text-muted-foreground text-sm">-</span>
+                  <input
+                    type="date"
+                    min={postDateFilterStart || ''}
+                    value={postDateFilterEnd}
+                    onChange={(e) => setPostDateFilterEnd(e.target.value)}
+                    className="flex-1 px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end border-t border-border pt-4">
+              <button
+                onClick={() => {
+                  setRouteOriginFilter('')
+                  setRouteDestinationFilter('')
+                  setRouteWilayaFilters([])
+                  setRouteCorridorOriginFilter('')
+                  setRouteCorridorDestinationFilter('')
+                  setRouteBetweenWilaya1Filter('')
+                  setRouteBetweenWilaya2Filter('')
+                  setRouteCapacityFilter('')
+                  setRouteVolumeFilter('')
+                  setRouteVehicleTypeFilters([])
+                  setRouteTypeFilter('all')
+                  setPostDateFilterStart('')
+                  setPostDateFilterEnd('')
+                }}
+                className="px-4 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 transition-colors text-sm font-medium inline-flex items-center gap-2"
+              >
+                <X className="w-4 h-4" />
+                {tr(uiLanguage, 'Clear Filters', 'Effacer les Filtres')}
+              </button>
+            </div>
           </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4 items-center">
-          <div className="flex items-center gap-2">
-          <input
-            type="date"
-            value={postDateFilterStart}
-            onChange={(e) => setPostDateFilterStart(e.target.value)}
-            className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            aria-label={tr(uiLanguage, 'Filter start date', 'Date de debut du filtre')}
-          />
-          <input
-            type="date"
-            value={postDateFilterEnd}
-            onChange={(e) => setPostDateFilterEnd(e.target.value)}
-            className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            aria-label={tr(uiLanguage, 'Filter end date', 'Date de fin du filtre')}
-          />
-          </div>
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={() => {
-                setPostDateFilterStart('')
-                setPostDateFilterEnd('')
-              }}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-muted text-sm font-medium text-foreground hover:bg-muted/80 transition-colors"
-              aria-label={tr(uiLanguage, 'Clear date filter', 'Effacer le filtre de dates')}
-              title={tr(uiLanguage, 'Clear date filter', 'Effacer le filtre de dates')}
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-          <WilayaSelectorMulti
-            label={tr(uiLanguage, 'Filter by Wilaya', 'Filtrer par Wilaya')}
-            values={routeWilayaFilters}
-            onChange={(nextValues) => setRouteWilayaFilters(nextValues)}
-            placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
-          />
-          <WilayaSearch
-            label={tr(uiLanguage, 'Passes through (First wilaya)', 'Passe par (Premiere wilaya)')}
-            value={routeCorridorOriginFilter}
-            onChange={(nextValue) => {
-              setRouteCorridorOriginFilter(nextValue)
-              if (routeCorridorDestinationFilter) {
-                setRouteCorridorDestinationFilter('')
-              }
-            }}
-            placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
-          />
-          <WilayaSearch
-            label={tr(uiLanguage, 'Passes through (Second wilaya)', 'Passe par (Deuxieme wilaya)')}
-            value={routeCorridorDestinationFilter}
-            onChange={(nextValue) => setRouteCorridorDestinationFilter(nextValue)}
-            placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
-            referenceWilaya={routeCorridorOriginFilter}
-          />
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-          <WilayaSearch
-            label={tr(uiLanguage, 'Between Wilayas (First wilaya)', 'Entre deux wilayas (Premiere wilaya)')}
-            value={routeBetweenWilaya1Filter}
-            onChange={(nextValue) => {
-              setRouteBetweenWilaya1Filter(nextValue)
-              if (routeBetweenWilaya2Filter && !nextValue) {
-                setRouteBetweenWilaya2Filter('')
-              }
-            }}
-            placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
-          />
-          <WilayaSearch
-            label={tr(uiLanguage, 'Between Wilayas (Second wilaya)', 'Entre deux wilayas (Deuxieme wilaya)')}
-            value={routeBetweenWilaya2Filter}
-            onChange={(nextValue) => setRouteBetweenWilaya2Filter(nextValue)}
-            placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
-            referenceWilaya={routeBetweenWilaya1Filter}
-          />
-        </div>
-        <div className="flex gap-3 mb-4">
-          <button
-            onClick={() => {
-              setRouteOriginFilter('')
-              setRouteDestinationFilter('')
-              setRouteWilayaFilters([])
-              setRouteCorridorOriginFilter('')
-              setRouteCorridorDestinationFilter('')
-              setRouteBetweenWilaya1Filter('')
-              setRouteBetweenWilaya2Filter('')
-              setRouteCapacityFilter('')
-              setRouteVolumeFilter('')
-              setRouteVehicleTypeFilters([])
-              setRouteTypeFilter('all')
-              setPostDateFilterStart('')
-              setPostDateFilterEnd('')
-            }}
-            className="px-3 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 transition-colors text-sm font-medium"
-          >
-            {tr(uiLanguage, 'Clear filters', 'Effacer les filtres', ' ')}
-          </button>
-        </div>
-          </>
         )}
         <div className="mb-5 flex flex-wrap gap-2 rounded-lg bg-muted p-1 w-fit">
           <button
@@ -7216,6 +7260,7 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
                     <>
                       <input
                         type="date"
+                        min={todayString}
                         value={routeDraft.availabilityStartDate}
                         onChange={(e) => setRouteDraft((prev) => ({ ...prev, availabilityStartDate: e.target.value }))}
                         placeholder={t('Available from', 'Disponible du')}
@@ -7223,6 +7268,7 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
                       />
                       <input
                         type="date"
+                        min={routeDraft.availabilityStartDate || todayString}
                         value={routeDraft.availabilityEndDate}
                         onChange={(e) => setRouteDraft((prev) => ({ ...prev, availabilityEndDate: e.target.value }))}
                         placeholder={t('Available until', 'Disponible jusqu au')}
@@ -7230,7 +7276,14 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
                       />
                     </>
                   ) : (
-                    <input value={routeDraft.departure} onChange={(e) => setRouteDraft((prev) => ({ ...prev, departure: e.target.value }))} placeholder={t('Departure date', 'Date de depart')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                    <input 
+                      type="date"
+                      min={todayString}
+                      value={routeDraft.departure} 
+                      onChange={(e) => setRouteDraft((prev) => ({ ...prev, departure: e.target.value }))} 
+                      placeholder={t('Departure date', 'Date de depart')} 
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" 
+                    />
                   )}
                   <div className="md:col-span-2 space-y-3 rounded-lg border border-border bg-muted/30 p-3">
                     <p className="text-xs text-muted-foreground">

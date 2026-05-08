@@ -46,18 +46,6 @@ export default function SignupPage() {
     e.preventDefault()
 
     if (userType === "user") {
-      const selectedCountry = countryOptions.find((country) => country.isoCode === countryCode)
-      if (!selectedCountry) {
-        alert("Please select a valid country")
-        return
-      }
-
-      const selectedCity = cityOptions.find((city) => city.name === formData.city)
-      if (!selectedCity) {
-        alert("Please select a valid city")
-        return
-      }
-
       setIsLoading(true)
       try {
         await discoverApiBaseUrl()
@@ -68,8 +56,6 @@ export default function SignupPage() {
             lastName: formData.lastName,
             email: formData.email,
             phoneNumber: formData.phoneNumber,
-            city: selectedCity.name,
-            country: selectedCountry.name,
             age: formData.age,
             password: formData.password,
           }
@@ -226,49 +212,6 @@ export default function SignupPage() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label htmlFor="city" className="block text-sm font-medium text-foreground mb-1.5">City</label>
-                    <select
-                      id="city"
-                      required
-                      disabled={!countryCode}
-                      value={formData.city}
-                      onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                      className="w-full rounded-lg border border-input bg-card px-4 py-3 text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
-                    >
-                      <option value="">{countryCode ? "Select city" : "Select country first"}</option>
-                      {cityOptions.map((city) => (
-                        <option key={`${city.name}-${city.latitude}-${city.longitude}`} value={city.name}>{city.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label htmlFor="country" className="block text-sm font-medium text-foreground mb-1.5">Country</label>
-                    <select
-                      id="country"
-                      required
-                      value={countryCode}
-                      onChange={(e) => {
-                        const nextCode = e.target.value
-                        const selected = countryOptions.find((country) => country.isoCode === nextCode)
-                        setCountryCode(nextCode)
-                        setFormData((prev) => ({
-                          ...prev,
-                          country: selected?.name || "",
-                          city: "",
-                        }))
-                      }}
-                      className="w-full rounded-lg border border-input bg-card px-4 py-3 text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
-                    >
-                      <option value="">Select country</option>
-                      {countryOptions.map((country) => (
-                        <option key={country.isoCode} value={country.isoCode}>{country.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
                     <label htmlFor="email" className="block text-sm font-medium text-foreground mb-1.5">Email address</label>
                     <input
                       id="email"
@@ -296,15 +239,25 @@ export default function SignupPage() {
 
                 <div>
                   <label htmlFor="phoneNumber" className="block text-sm font-medium text-foreground mb-1.5">Phone number</label>
-                  <input
-                    id="phoneNumber"
-                    type="tel"
-                    required
-                    value={formData.phoneNumber}
-                    onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
-                    className="w-full rounded-lg border border-input bg-card px-4 py-3 text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
-                    placeholder="+213 555-55-55-55"
-                  />
+                  <div className="flex gap-2">
+                    <div className="flex items-center justify-center bg-muted text-muted-foreground border border-input rounded-lg px-3 py-3 text-sm font-medium select-none">
+                      +213
+                    </div>
+                    <input
+                      id="phoneNumber"
+                      type="tel"
+                      required
+                      pattern="[0-9]{9}"
+                      maxLength="9"
+                      value={formData.phoneNumber.replace('+213', '')}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, '').slice(0, 9);
+                        setFormData({ ...formData, phoneNumber: val ? '+213' + val : '' });
+                      }}
+                      className="flex-1 rounded-lg border border-input bg-card px-4 py-3 text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
+                      placeholder="555555555"
+                    />
+                  </div>
                 </div>
               </>
             )}
@@ -340,15 +293,25 @@ export default function SignupPage() {
 
                 <div>
                   <label htmlFor="company_phone" className="block text-sm font-medium text-foreground mb-1.5">Phone number</label>
-                  <input
-                    id="company_phone"
-                    type="tel"
-                    required
-                    value={formData.phone_number}
-                    onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })}
-                    className="w-full rounded-lg border border-input bg-card px-4 py-3 text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
-                    placeholder="+213 555-55-55-55"
-                  />
+                  <div className="flex gap-2">
+                    <div className="flex items-center justify-center bg-muted text-muted-foreground border border-input rounded-lg px-3 py-3 text-sm font-medium select-none">
+                      +213
+                    </div>
+                    <input
+                      id="company_phone"
+                      type="tel"
+                      required
+                      pattern="[0-9]{9}"
+                      maxLength="9"
+                      value={formData.phone_number.replace('+213', '')}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, '').slice(0, 9);
+                        setFormData({ ...formData, phone_number: val ? '+213' + val : '' });
+                      }}
+                      className="flex-1 rounded-lg border border-input bg-card px-4 py-3 text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
+                      placeholder="555555555"
+                    />
+                  </div>
                 </div>
               </>
             )}
