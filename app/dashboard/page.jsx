@@ -26,6 +26,7 @@ import {
 } from 'lucide-react'
 import DashboardSidebar from '@/components/dashboard-sidebar'
 import WilayaSearch from '@/components/ui/wilaya-search'
+import WilayaSelectorMulti from '@/components/ui/wilaya-selector-multi'
 import { discoverApiBaseUrl, getApiBaseUrl, getApiUrl } from '@/lib/api'
 
 const DEFAULT_USER = { name: 'John User', email: 'john@tosselcom.com', role: 'shared', photo: '' }
@@ -97,6 +98,7 @@ function createVehicleAllocationInput(seed = {}) {
   return {
     type: normalizeVehicleType(seed.type || seed.name || seed.label),
     capacity: String(seed.capacity ?? ''),
+    volume: String(seed.volume ?? ''),
   }
 }
 
@@ -233,6 +235,8 @@ function normalizeVehicleAllocationRecords(rawValue, fallbackCapacity) {
         ? entry
         : entry?.capacity ?? entry?.value ?? entry?.amount ?? entry
       const parsedCapacity = parseNumericInput(rawCapacity)
+      const rawVolume = typeof entry === 'object' ? (entry?.volume ?? entry?.vol ?? entry?.valueVolume ?? undefined) : undefined
+      const parsedVolume = parseNumericInput(rawVolume)
 
       if (!Number.isFinite(parsedCapacity) || parsedCapacity <= 0) {
         return null
@@ -248,6 +252,7 @@ function normalizeVehicleAllocationRecords(rawValue, fallbackCapacity) {
         type: normalizedType,
         name: getVehicleTypeLabel(normalizedType),
         capacity: Math.round(parsedCapacity),
+        ...(Number.isFinite(parsedVolume) && parsedVolume >= 0 ? { volume: Math.round(parsedVolume) } : {}),
       }
     })
     .filter(Boolean)
@@ -255,8 +260,9 @@ function normalizeVehicleAllocationRecords(rawValue, fallbackCapacity) {
   return normalizedRecords.length > 0 ? normalizedRecords : fallbackRecord
 }
 
-function buildVehicleAllocationPayload(vehicleAllocationValues, totalCapacity) {
+function buildVehicleAllocationPayload(vehicleAllocationValues, totalCapacity, totalVolume) {
   const parsedTotalCapacity = parseNumericInput(totalCapacity)
+  const parsedTotalVolume = totalVolume === undefined ? undefined : parseNumericInput(totalVolume)
 
   if (!Number.isFinite(parsedTotalCapacity) || parsedTotalCapacity <= 0) {
     return {
@@ -272,12 +278,20 @@ function buildVehicleAllocationPayload(vehicleAllocationValues, totalCapacity) {
         }
 
         const normalizedType = normalizeVehicleType(entry?.type)
+        const parsedVolume = parseNumericInput(entry?.volume)
 
-        return {
+        const result = {
           type: normalizedType,
           name: getVehicleTypeLabel(normalizedType),
           capacity: Math.round(parsedCapacity),
         }
+
+        // Include volume if specified for this vehicle
+        if (Number.isFinite(parsedVolume) && parsedVolume > 0) {
+          result.volume = Math.round(parsedVolume)
+        }
+
+        return result
       })
     : [{ type: DEFAULT_VEHICLE_TYPE, name: getVehicleTypeLabel(DEFAULT_VEHICLE_TYPE), capacity: Math.round(parsedTotalCapacity) }]
 
@@ -297,6 +311,43 @@ function buildVehicleAllocationPayload(vehicleAllocationValues, totalCapacity) {
     }
   }
 
+  // Handle volume distribution
+  if (parsedTotalVolume !== undefined && (!Number.isFinite(parsedTotalVolume) || parsedTotalVolume <= 0)) {
+    return { error: 'Volume must be a valid number greater than 0' }
+  }
+
+  // Check if any vehicles have user-specified volumes
+  const vehiclesWithUserVolumes = normalizedAllocations.filter((entry) => entry.volume !== undefined)
+  
+  if (vehiclesWithUserVolumes.length > 0 && parsedTotalVolume !== undefined) {
+    // Volumes specified - validate they sum correctly
+    const roundedTotalVolume = Math.round(parsedTotalVolume)
+    const userVolumeSum = normalizedAllocations.reduce((sum, entry) => sum + (entry.volume || 0), 0)
+    
+    if (userVolumeSum !== roundedTotalVolume) {
+      return {
+        error: `Vehicle volumes must add up to ${formatVolumeM3(roundedTotalVolume)}`,
+      }
+    }
+  } else if (parsedTotalVolume !== undefined && parsedTotalVolume > 0) {
+    // No user-specified volumes, auto-distribute all proportionally
+    const roundedTotalVolume = Math.round(parsedTotalVolume)
+    let distributedSum = 0
+    
+    for (let i = 0; i < normalizedAllocations.length; i += 1) {
+      const entry = normalizedAllocations[i]
+      const share = Math.round((entry.capacity / allocationTotal) * roundedTotalVolume)
+      entry.volume = share
+      distributedSum += share
+    }
+    
+    // fix rounding differences by adjusting last entry
+    const diff = roundedTotalVolume - distributedSum
+    if (diff !== 0 && normalizedAllocations.length > 0) {
+      normalizedAllocations[normalizedAllocations.length - 1].volume += diff
+    }
+  }
+
   return {
     vehicleAllocation: normalizedAllocations,
   }
@@ -310,7 +361,11 @@ function formatVehicleAllocationSummary(vehicleAllocation, fallbackCapacity) {
   }
 
   return normalizedAllocations
-    .map((entry) => `${getVehicleTypeLabel(normalizeVehicleType(entry.type || entry.name))}: ${formatWeightKg(entry.capacity)}`)
+    .map((entry) => {
+      const base = `${getVehicleTypeLabel(normalizeVehicleType(entry.type || entry.name))}: ${formatWeightKg(entry.capacity)}`
+      if (entry.volume != null) return `${base} / ${formatVolumeM3(entry.volume)}`
+      return base
+    })
     .join(', ')
 }
 
@@ -365,6 +420,7 @@ function mapDeliveryPostFromDb(row) {
   const resolvedOwnerId = Number(row.user_id) || null
   const resolvedOwnerEmail = row.creator_email || row.ownerEmail || ''
   const resolvedOwnerName = row.creator_name || row.ownerName || row.ownerEmail || 'Unknown user'
+  const resolvedVolume = row.volume ?? row.capacity ?? ''
 
   return {
     id: `SHP-DB-${row.id}`,
@@ -373,8 +429,9 @@ function mapDeliveryPostFromDb(row) {
     origin: row.origin,
     destination: row.destination,
     weight: String(row.weight ?? ''),
-    capacity: String(row.volume ?? ''),
-    dimensions: row.volume != null ? String(row.volume) : 'N/A',
+    volume: String(resolvedVolume),
+    capacity: String(resolvedVolume),
+    dimensions: row.volume != null ? String(row.volume) : (row.capacity != null ? String(row.capacity) : 'N/A'),
     category: row.itemCategory || 'general',
     description: row.description || '',
     type: row.itemCategory || 'general',
@@ -408,6 +465,7 @@ function mapAvailabilityPostFromDb(row) {
     from: row.origin,
     to: row.destination,
     capacity: String(row.capacity ?? ''),
+    volume: String(row.volume ?? row.capacity ?? ''),
     available: String(row.capacity ?? ''),
     departure: departureLabel,
     routeDateRaw: row.date || '',
@@ -527,20 +585,22 @@ export default function DashboardPage() {
   const [routeTypeFilter, setRouteTypeFilter] = useState('all')
   const [shipmentOriginFilter, setShipmentOriginFilter] = useState('')
   const [shipmentDestinationFilter, setShipmentDestinationFilter] = useState('')
-  const [shipmentWilayaFilter, setShipmentWilayaFilter] = useState('')
+  const [shipmentWilayaFilters, setShipmentWilayaFilters] = useState([])
   const [shipmentCapacityFilter, setShipmentCapacityFilter] = useState('')
+  const [shipmentVolumeFilter, setShipmentVolumeFilter] = useState('')
   const [shipmentCorridorOriginFilter, setShipmentCorridorOriginFilter] = useState('')
   const [shipmentCorridorDestinationFilter, setShipmentCorridorDestinationFilter] = useState('')
   const [shipmentBetweenWilaya1Filter, setShipmentBetweenWilaya1Filter] = useState('')
   const [shipmentBetweenWilaya2Filter, setShipmentBetweenWilaya2Filter] = useState('')
   const [routeOriginFilter, setRouteOriginFilter] = useState('')
   const [routeDestinationFilter, setRouteDestinationFilter] = useState('')
-  const [routeWilayaFilter, setRouteWilayaFilter] = useState('')
+  const [routeWilayaFilters, setRouteWilayaFilters] = useState([])
   const [routeCorridorOriginFilter, setRouteCorridorOriginFilter] = useState('')
   const [routeCorridorDestinationFilter, setRouteCorridorDestinationFilter] = useState('')
   const [routeBetweenWilaya1Filter, setRouteBetweenWilaya1Filter] = useState('')
   const [routeBetweenWilaya2Filter, setRouteBetweenWilaya2Filter] = useState('')
   const [routeCapacityFilter, setRouteCapacityFilter] = useState('')
+  const [routeVolumeFilter, setRouteVolumeFilter] = useState('')
   const [routeVehicleTypeFilter, setRouteVehicleTypeFilter] = useState('')
   const [postDateFilterStart, setPostDateFilterStart] = useState('')
   const [postDateFilterEnd, setPostDateFilterEnd] = useState('')
@@ -551,7 +611,7 @@ export default function DashboardPage() {
   const [showShipmentModal, setShowShipmentModal] = useState(false)
   const [isSubmittingShipment, setIsSubmittingShipment] = useState(false)
   const [routePostType, setRoutePostType] = useState('full_route')
-  const [formData, setFormData] = useState({ from: '', to: '', capacity: '', vehicleCount: '1', vehicleAllocations: [createVehicleAllocationInput()], departure: '', availableCity: '', availabilityStartDate: '', availabilityEndDate: '' })
+  const [formData, setFormData] = useState({ from: '', to: '', capacity: '', volume: '', vehicleCount: '1', vehicleAllocations: [createVehicleAllocationInput()], departure: '', availableCity: '', availabilityStartDate: '', availabilityEndDate: '' })
   const [archivedDeliveryPostsCount, setArchivedDeliveryPostsCount] = useState(0)
   const [archivedAvailabilityPostsCount, setArchivedAvailabilityPostsCount] = useState(0)
   const [shipmentFormData, setShipmentFormData] = useState({
@@ -1032,19 +1092,25 @@ export default function DashboardPage() {
 
   const handlePostRoute = (type = 'full_route') => {
     setRoutePostType(type)
-    setFormData({ from: '', to: '', capacity: '', vehicleCount: '1', vehicleAllocations: [createVehicleAllocationInput()], departure: '', availableCity: '', availabilityStartDate: '', availabilityEndDate: '' })
+    setFormData({ from: '', to: '', capacity: '', volume: '', vehicleCount: '1', vehicleAllocations: [createVehicleAllocationInput()], departure: '', availableCity: '', availabilityStartDate: '', availabilityEndDate: '' })
     setShowRouteModal(true)
   }
 
   const handleSubmitRoute = async () => {
     const totalCapacity = parseNumericInput(formData.capacity)
+    const totalVolume = parseNumericInput(formData.volume)
 
     if (!Number.isFinite(totalCapacity) || totalCapacity <= 0) {
       pushNotification('Please fill in capacity')
       return
     }
 
-    const vehicleAllocationPayload = buildVehicleAllocationPayload(formData.vehicleAllocations, totalCapacity)
+    if (!Number.isFinite(totalVolume) || totalVolume <= 0) {
+      pushNotification('Please fill in volume')
+      return
+    }
+
+    const vehicleAllocationPayload = buildVehicleAllocationPayload(formData.vehicleAllocations, totalCapacity, totalVolume)
     if (vehicleAllocationPayload.error) {
       pushNotification(vehicleAllocationPayload.error)
       return
@@ -1093,6 +1159,7 @@ export default function DashboardPage() {
         ? formData.availableCity
         : (formData.availableCity || routeDestination || routeOrigin),
       capacity: Math.round(totalCapacity),
+      volume: Math.round(totalVolume),
       vehicleAllocation: vehicleAllocationPayload.vehicleAllocation,
       date: routePostType === 'full_route'
         ? formData.departure
@@ -1106,12 +1173,13 @@ export default function DashboardPage() {
     }
 
     try {
-      const apiBaseUrl = await discoverApiBaseUrl()
+      console.log('Creating availability payload', payload)
       const response = await axios.post(`${apiBaseUrl}/posts/availability`, payload, {
         headers: { token },
         timeout: 15000,
       })
 
+      console.log('Availability post created successfully:', response.data)
       const createdId = response.data?.postId
     
       const newRoute = {
@@ -1120,6 +1188,7 @@ export default function DashboardPage() {
         from: routeOrigin,
         to: routeDestination,
         capacity: formData.capacity,
+        volume: formData.volume,
         available: formData.capacity,
         vehicleAllocation: vehicleAllocationPayload.vehicleAllocation,
         vehicleCount: vehicleAllocationPayload.vehicleAllocation.length,
@@ -1145,8 +1214,11 @@ export default function DashboardPage() {
       pushNotification(`${routePostType === 'full_route' ? 'Route' : 'Availability'} post created: ${newRoute.id}`)
       setShowRouteModal(false)
       setRoutePostType('full_route')
-      setFormData({ from: '', to: '', capacity: '', vehicleCount: '1', vehicleAllocations: [createVehicleAllocationInput()], departure: '', availableCity: '', availabilityStartDate: '', availabilityEndDate: '' })
+      setFormData({ from: '', to: '', capacity: '', volume: '', vehicleCount: '1', vehicleAllocations: [createVehicleAllocationInput()], departure: '', availableCity: '', availabilityStartDate: '', availabilityEndDate: '' })
     } catch (error) {
+      console.error('Error creating availability post:', error)
+      console.error('Error response:', error?.response?.data)
+      console.error('Full error:', JSON.stringify(error, null, 2))
       pushNotification(error?.response?.data?.message || 'Failed to create availability post')
     }
   }
@@ -1343,6 +1415,7 @@ export default function DashboardPage() {
       from: String(updates?.from || targetRoute.from || '').trim(),
       to: String(updates?.to || targetRoute.to || '').trim(),
       capacity: String(updates?.capacity || '').trim(),
+      volume: String(updates?.volume || targetRoute.volume || '').trim(),
       vehicleAllocations: Array.isArray(updates?.vehicleAllocations) ? updates.vehicleAllocations : [],
       departure: String(updates?.departure || '').trim(),
       availableCity: String(updates?.availableCity || targetRoute.availableCity || '').trim(),
@@ -1351,13 +1424,19 @@ export default function DashboardPage() {
     }
 
     const totalCapacity = parseNumericInput(normalizedUpdates.capacity)
+    const totalVolume = parseNumericInput(normalizedUpdates.volume)
 
     if (!Number.isFinite(totalCapacity) || totalCapacity <= 0) {
       pushNotification('Capacity is required')
       return
     }
 
-    const vehicleAllocationPayload = buildVehicleAllocationPayload(normalizedUpdates.vehicleAllocations, totalCapacity)
+    if (!Number.isFinite(totalVolume) || totalVolume <= 0) {
+      pushNotification('Volume is required')
+      return
+    }
+
+    const vehicleAllocationPayload = buildVehicleAllocationPayload(normalizedUpdates.vehicleAllocations, totalCapacity, totalVolume)
     if (vehicleAllocationPayload.error) {
       pushNotification(vehicleAllocationPayload.error)
       return
@@ -1400,6 +1479,7 @@ export default function DashboardPage() {
               from: routeOrigin,
               to: routeDestination,
               capacity: normalizedUpdates.capacity,
+              volume: normalizedUpdates.volume,
               available: normalizedUpdates.capacity,
               vehicleAllocation: vehicleAllocationPayload.vehicleAllocation,
               vehicleCount: vehicleAllocationPayload.vehicleAllocation.length,
@@ -1432,6 +1512,7 @@ export default function DashboardPage() {
       destination: routeDestination,
       availableCity: normalizedUpdates.availableCity || routeDestination || routeOrigin,
       capacity: Math.round(totalCapacity),
+      volume: Math.round(totalVolume),
       vehicleAllocation: vehicleAllocationPayload.vehicleAllocation,
       date: normalizedUpdates.postType === 'availability_only'
         ? buildAvailabilityDateIntervalValue(normalizedUpdates.availabilityStartDate, normalizedUpdates.availabilityEndDate)
@@ -1445,6 +1526,7 @@ export default function DashboardPage() {
     }
 
     try {
+      console.log('Updating availability payload', payload)
       await axios.put(getApiUrl(`/posts/availability/${targetRoute.dbId}`), payload, {
         headers: { token },
       })
@@ -1457,6 +1539,7 @@ export default function DashboardPage() {
               from: payload.origin,
               to: payload.destination,
               capacity: String(payload.capacity),
+              volume: String(payload.volume),
               available: String(payload.capacity),
               vehicleAllocation: payload.vehicleAllocation,
               vehicleCount: payload.vehicleAllocation.length,
@@ -1906,33 +1989,35 @@ export default function DashboardPage() {
     const {
       originFilterValue,
       destinationFilterValue,
-      wilayaFilterValue,
+      wilayaFiltersValue = [],
       corridorOriginFilterValue,
       corridorDestinationFilterValue,
       betweenWilaya1FilterValue,
       betweenWilaya2FilterValue,
       capacityFilterValue,
+      volumeFilterValue,
       vehicleTypeFilterValue = '',
       capacityComparator = 'lte',
+      volumeComparator = 'lte',
       typeMatches = true,
       getOrigin,
       getDestination,
       getWaypoints,
       getCapacity,
+      getVolume = null,
       getAvailableCity = null,
       corridorSegmentValue = '',
     } = config
 
     const normalizedOriginFilter = normalizeRouteText(originFilterValue)
     const normalizedDestinationFilter = normalizeRouteText(destinationFilterValue)
-    const normalizedWilayaFilter = normalizeWilayaName(wilayaFilterValue)
+    const hasWilayaFilters = wilayaFiltersValue.length > 0
     const normalizedCorridorOriginFilter = normalizeRouteText(corridorOriginFilterValue)
     const normalizedCorridorDestinationFilter = normalizeRouteText(corridorDestinationFilterValue)
     const normalizedBetweenWilaya1Filter = normalizeWilayaName(betweenWilaya1FilterValue)
     const normalizedBetweenWilaya2Filter = normalizeWilayaName(betweenWilaya2FilterValue)
     const hasOriginFilter = Boolean(normalizedOriginFilter)
     const hasDestinationFilter = Boolean(normalizedDestinationFilter)
-    const hasWilayaFilter = Boolean(normalizedWilayaFilter)
     const hasCorridorOriginFilter = Boolean(normalizedCorridorOriginFilter)
     const hasCorridorDestinationFilter = Boolean(normalizedCorridorDestinationFilter)
     const hasBetweenWilaya1Filter = Boolean(normalizedBetweenWilaya1Filter)
@@ -1948,7 +2033,8 @@ export default function DashboardPage() {
 
     const originTextMatches = !hasOriginFilter || normalizeRouteText(originValue).includes(normalizedOriginFilter)
     const destinationTextMatches = !hasDestinationFilter || normalizeRouteText(destinationValue).includes(normalizedDestinationFilter)
-    const wilayaMatches = !hasWilayaFilter || isWilayaOnRoute(wilayaFilterValue, originValue, destinationValue)
+    // Check if ANY of the selected wilayas is on the route (OR logic)
+    const wilayaMatches = !hasWilayaFilters || wilayaFiltersValue.some((wilayaName) => isWilayaOnRoute(wilayaName, originValue, destinationValue))
 
     const corridorOriginTextMatches = !hasCorridorOriginFilter || normalizedWaypoints.includes(normalizedCorridorOriginFilter)
     const corridorDestinationTextMatches = !hasCorridorDestinationFilter || normalizedWaypoints.includes(normalizedCorridorDestinationFilter)
@@ -1980,9 +2066,17 @@ export default function DashboardPage() {
         : numericCapacity <= numericCapacityFilter
     )
 
+    const numericVolume = Number.parseFloat(getVolume ? getVolume(item) : getCapacity(item)) || 0
+    const numericVolumeFilter = Number.parseFloat(volumeFilterValue)
+    const volumeMatches = !volumeFilterValue || (
+      volumeComparator === 'gte'
+        ? numericVolume > numericVolumeFilter
+        : numericVolume <= numericVolumeFilter
+    )
+
     const vehicleTypeMatches = !vehicleTypeFilterValue || routeHasVehicleType(item, vehicleTypeFilterValue)
 
-    return geometryMatches && corridorGeometryMatches && betweenWilayasMatches && wilayaMatches && capacityMatches && vehicleTypeMatches && typeMatches
+    return geometryMatches && corridorGeometryMatches && betweenWilayasMatches && wilayaMatches && capacityMatches && volumeMatches && vehicleTypeMatches && typeMatches
   }
 
   // Section-level filters (shipments: mirror availability/route filters + corridor support)
@@ -1995,19 +2089,21 @@ export default function DashboardPage() {
       && matchesPostFilters(item, {
         originFilterValue: shipmentOriginFilter,
         destinationFilterValue: shipmentDestinationFilter,
-        wilayaFilterValue: shipmentWilayaFilter,
+        wilayaFiltersValue: shipmentWilayaFilters,
         corridorOriginFilterValue: shipmentCorridorOriginFilter,
         corridorDestinationFilterValue: shipmentCorridorDestinationFilter,
         betweenWilaya1FilterValue: shipmentBetweenWilaya1Filter,
         betweenWilaya2FilterValue: shipmentBetweenWilaya2Filter,
         capacityFilterValue: shipmentCapacityFilter,
+        volumeFilterValue: shipmentVolumeFilter,
         getOrigin: (post) => post.origin,
         getDestination: (post) => post.destination,
         getWaypoints: (post) => getRouteWaypoints(post.origin, '', post.destination),
         getCapacity: (post) => post.capacity,
+        getVolume: (post) => post.volume ?? post.capacity,
         getAvailableCity: null,
       })),
-    [shipmentItems, shipmentOriginFilter, shipmentDestinationFilter, shipmentWilayaFilter, shipmentCorridorOriginFilter, shipmentCorridorDestinationFilter, shipmentBetweenWilaya1Filter, shipmentBetweenWilaya2Filter, shipmentCapacityFilter, postDateFilterStart, postDateFilterEnd]
+    [shipmentItems, shipmentOriginFilter, shipmentDestinationFilter, shipmentWilayaFilters, shipmentCorridorOriginFilter, shipmentCorridorDestinationFilter, shipmentBetweenWilaya1Filter, shipmentBetweenWilaya2Filter, shipmentCapacityFilter, shipmentVolumeFilter, postDateFilterStart, postDateFilterEnd]
   )
 
   const filteredRoutes = useMemo(
@@ -2025,14 +2121,16 @@ export default function DashboardPage() {
       && matchesPostFilters(item, {
         originFilterValue: routeOriginFilter,
         destinationFilterValue: routeDestinationFilter,
-        wilayaFilterValue: routeWilayaFilter,
+        wilayaFiltersValue: routeWilayaFilters,
         corridorOriginFilterValue: routeCorridorOriginFilter,
         corridorDestinationFilterValue: routeCorridorDestinationFilter,
         betweenWilaya1FilterValue: routeBetweenWilaya1Filter,
         betweenWilaya2FilterValue: routeBetweenWilaya2Filter,
         capacityFilterValue: routeCapacityFilter,
+        volumeFilterValue: routeVolumeFilter,
         vehicleTypeFilterValue: routeVehicleTypeFilter,
         capacityComparator: 'gte',
+        volumeComparator: 'gte',
         typeMatches:
           routeTypeFilter === 'all'
           || (routeTypeFilter === 'availability_only' && item.postType === 'availability_only')
@@ -2041,10 +2139,11 @@ export default function DashboardPage() {
         getDestination: (post) => post.to,
         getWaypoints: (post) => getRouteWaypoints(post.from, post.availableCity, post.to),
         getCapacity: (post) => post.available,
+        getVolume: (post) => post.volume ?? post.available,
         getAvailableCity: (post) => post.availableCity,
         corridorSegmentValue: item?.availableCity || '',
       })),
-    [routeItems, routeOriginFilter, routeDestinationFilter, routeWilayaFilter, routeCorridorOriginFilter, routeCorridorDestinationFilter, routeBetweenWilaya1Filter, routeBetweenWilaya2Filter, routeCapacityFilter, routeVehicleTypeFilter, routeTypeFilter, postDateFilterStart, postDateFilterEnd]
+    [routeItems, routeOriginFilter, routeDestinationFilter, routeWilayaFilters, routeCorridorOriginFilter, routeCorridorDestinationFilter, routeBetweenWilaya1Filter, routeBetweenWilaya2Filter, routeCapacityFilter, routeVolumeFilter, routeVehicleTypeFilter, routeTypeFilter, postDateFilterStart, postDateFilterEnd]
   )
 
   return (
@@ -2265,20 +2364,22 @@ export default function DashboardPage() {
                     postDateFilterEnd={postDateFilterEnd}
                     shipmentOriginFilter={shipmentOriginFilter}
                     shipmentDestinationFilter={shipmentDestinationFilter}
-                    shipmentWilayaFilter={shipmentWilayaFilter}
+                    shipmentWilayaFilters={shipmentWilayaFilters}
                     shipmentCorridorOriginFilter={shipmentCorridorOriginFilter}
                     shipmentCorridorDestinationFilter={shipmentCorridorDestinationFilter}
                     shipmentBetweenWilaya1Filter={shipmentBetweenWilaya1Filter}
                     shipmentBetweenWilaya2Filter={shipmentBetweenWilaya2Filter}
                     shipmentCapacityFilter={shipmentCapacityFilter}
+                    shipmentVolumeFilter={shipmentVolumeFilter}
                     setShipmentOriginFilter={setShipmentOriginFilter}
                     setShipmentDestinationFilter={setShipmentDestinationFilter}
-                    setShipmentWilayaFilter={setShipmentWilayaFilter}
+                    setShipmentWilayaFilters={setShipmentWilayaFilters}
                     setShipmentCorridorOriginFilter={setShipmentCorridorOriginFilter}
                     setShipmentCorridorDestinationFilter={setShipmentCorridorDestinationFilter}
                     setShipmentBetweenWilaya1Filter={setShipmentBetweenWilaya1Filter}
                     setShipmentBetweenWilaya2Filter={setShipmentBetweenWilaya2Filter}
                     setShipmentCapacityFilter={setShipmentCapacityFilter}
+                    setShipmentVolumeFilter={setShipmentVolumeFilter}
                     setPostDateFilterStart={setPostDateFilterStart}
                     setPostDateFilterEnd={setPostDateFilterEnd}
                     advanceShipmentStatus={advanceShipmentStatus}
@@ -2303,21 +2404,23 @@ export default function DashboardPage() {
                     postDateFilterEnd={postDateFilterEnd}
                     routeOriginFilter={routeOriginFilter}
                     routeDestinationFilter={routeDestinationFilter}
-                    routeWilayaFilter={routeWilayaFilter}
+                    routeWilayaFilters={routeWilayaFilters}
                     routeCorridorOriginFilter={routeCorridorOriginFilter}
                     routeCorridorDestinationFilter={routeCorridorDestinationFilter}
                     routeBetweenWilaya1Filter={routeBetweenWilaya1Filter}
                     routeBetweenWilaya2Filter={routeBetweenWilaya2Filter}
                     routeCapacityFilter={routeCapacityFilter}
+                    routeVolumeFilter={routeVolumeFilter}
                     routeVehicleTypeFilter={routeVehicleTypeFilter}
                     setRouteOriginFilter={setRouteOriginFilter}
                     setRouteDestinationFilter={setRouteDestinationFilter}
-                    setRouteWilayaFilter={setRouteWilayaFilter}
+                    setRouteWilayaFilters={setRouteWilayaFilters}
                     setRouteCorridorOriginFilter={setRouteCorridorOriginFilter}
                     setRouteCorridorDestinationFilter={setRouteCorridorDestinationFilter}
                     setRouteBetweenWilaya1Filter={setRouteBetweenWilaya1Filter}
                     setRouteBetweenWilaya2Filter={setRouteBetweenWilaya2Filter}
                     setRouteCapacityFilter={setRouteCapacityFilter}
+                    setRouteVolumeFilter={setRouteVolumeFilter}
                     setRouteVehicleTypeFilter={setRouteVehicleTypeFilter}
                     setPostDateFilterStart={setPostDateFilterStart}
                     setPostDateFilterEnd={setPostDateFilterEnd}
@@ -2464,6 +2567,19 @@ export default function DashboardPage() {
               </div>
 
               <div>
+                <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Volume (m^3)', 'Volume (m^3)')}</label>
+                <input
+                  type="number"
+                  placeholder={tr(uiLanguage, 'e.g., 12.5', 'ex. 12,5')}
+                  value={formData.volume}
+                  onChange={(e) => setFormData({ ...formData, volume: e.target.value })}
+                  className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                  step="0.1"
+                  min="0"
+                />
+              </div>
+
+              <div>
                 <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Vehicle count', 'Nombre de vehicules')}</label>
                 <div className="rounded-xl border border-border bg-muted/60 p-3 sm:p-4 space-y-3">
                   <div className="flex items-center justify-between gap-3">
@@ -2543,50 +2659,84 @@ export default function DashboardPage() {
 
               <div className="space-y-3 rounded-lg border border-border bg-muted/40 p-3 sm:p-4">
                 <p className="text-xs text-muted-foreground">
-                  {tr(uiLanguage, 'Split the total capacity across the vehicles below. The sum must match the total capacity.', 'Repartissez la capacite totale entre les vehicules ci-dessous. La somme doit correspondre a la capacite totale.')}
+                  {tr(uiLanguage, 'Split the total capacity and volume across the vehicles below. The sum must match the total capacity.', 'Repartissez la capacite et le volume totaux entre les vehicules ci-dessous. La somme doit correspondre a la capacite totale.')}
                 </p>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  {formData.vehicleAllocations.map((allocationValue, index) => (
-                    <div key={`vehicle-allocation-${index}`} className="rounded-lg border border-border bg-background/80 p-3">
-                      <label className="block text-xs font-medium text-muted-foreground mb-2">{tr(uiLanguage, `Vehicle ${index + 1}`, `Vehicule ${index + 1}`)}</label>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <select
-                          value={allocationValue.type}
-                          onChange={(e) => {
-                            const nextType = e.target.value
-                            setFormData((prev) => ({
-                              ...prev,
-                              vehicleAllocations: prev.vehicleAllocations.map((currentValue, currentIndex) => (
-                                currentIndex === index ? { ...currentValue, type: nextType } : currentValue
-                              )),
-                            }))
-                          }}
-                          className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                        >
-                          {VEHICLE_TYPE_OPTIONS.map((option) => (
-                            <option key={option.value} value={option.value}>{tr(uiLanguage, option.en, option.fr)}</option>
-                          ))}
-                        </select>
-                        <input
-                          type="number"
-                          min="1"
-                          placeholder={tr(uiLanguage, 'Capacity (kg)', 'Capacite (kg)')}
-                          value={allocationValue.capacity}
-                          onChange={(e) => {
-                            const nextValue = e.target.value
-                            setFormData((prev) => ({
-                              ...prev,
-                              vehicleAllocations: prev.vehicleAllocations.map((currentValue, currentIndex) => (
-                                currentIndex === index ? { ...currentValue, capacity: nextValue } : currentValue
-                              )),
-                            }))
-                          }}
-                          className="w-full px-3 py-3 bg-background border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                          step="1"
-                        />
-                      </div>
-                    </div>
-                  ))}
+                  {
+                    // Preview distributed volumes based on current allocations and total volume
+                    (() => {
+                      const preview = buildVehicleAllocationPayload(formData.vehicleAllocations, parseNumericInput(formData.capacity), parseNumericInput(formData.volume))
+                      const previewAllocations = (!preview || preview.error) ? [] : preview.vehicleAllocation
+                      return formData.vehicleAllocations.map((allocationValue, index) => {
+                        const previewEntry = previewAllocations[index] || {}
+                        const previewVolumeLabel = previewEntry.volume != null ? formatVolumeM3(previewEntry.volume) : null
+                        return (
+                          <div key={`vehicle-allocation-${index}`} className="rounded-lg border border-border bg-background/80 p-3">
+                            <label className="block text-xs font-medium text-muted-foreground mb-2">{tr(uiLanguage, `Vehicle ${index + 1}`, `Vehicule ${index + 1}`)}</label>
+                            <div className="space-y-2">
+                              <select
+                                value={allocationValue.type}
+                                onChange={(e) => {
+                                  const nextType = e.target.value
+                                  setFormData((prev) => ({
+                                    ...prev,
+                                    vehicleAllocations: prev.vehicleAllocations.map((currentValue, currentIndex) => (
+                                      currentIndex === index ? { ...currentValue, type: nextType } : currentValue
+                                    )),
+                                  }))
+                                }}
+                                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                              >
+                                {VEHICLE_TYPE_OPTIONS.map((option) => (
+                                  <option key={option.value} value={option.value}>{tr(uiLanguage, option.en, option.fr)}</option>
+                                ))}
+                              </select>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    placeholder={tr(uiLanguage, 'Capacity (kg)', 'Capacite (kg)')}
+                                    value={allocationValue.capacity}
+                                    onChange={(e) => {
+                                      const nextValue = e.target.value
+                                      setFormData((prev) => ({
+                                        ...prev,
+                                        vehicleAllocations: prev.vehicleAllocations.map((currentValue, currentIndex) => (
+                                          currentIndex === index ? { ...currentValue, capacity: nextValue } : currentValue
+                                        )),
+                                      }))
+                                    }}
+                                    className="w-full px-3 py-3 bg-background border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                                    step="1"
+                                  />
+                                </div>
+                                <div>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    placeholder={tr(uiLanguage, 'Volume (m^3)', 'Volume (m^3)')}
+                                    value={allocationValue.volume}
+                                    onChange={(e) => {
+                                      const nextValue = e.target.value
+                                      setFormData((prev) => ({
+                                        ...prev,
+                                        vehicleAllocations: prev.vehicleAllocations.map((currentValue, currentIndex) => (
+                                          currentIndex === index ? { ...currentValue, volume: nextValue } : currentValue
+                                        )),
+                                      }))
+                                    }}
+                                    className="w-full px-3 py-3 bg-background border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                                    step="0.1"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })
+                    })()
+                  }
                 </div>
               </div>
 
@@ -2635,7 +2785,7 @@ export default function DashboardPage() {
                 onClick={() => {
                   setShowRouteModal(false)
                   setRoutePostType('full_route')
-                  setFormData({ from: '', to: '', capacity: '', vehicleCount: '1', vehicleAllocations: [createVehicleAllocationInput()], departure: '', availableCity: '', availabilityStartDate: '', availabilityEndDate: '' })
+                    setFormData({ from: '', to: '', capacity: '', volume: '', vehicleCount: '1', vehicleAllocations: [createVehicleAllocationInput()], departure: '', availableCity: '', availabilityStartDate: '', availabilityEndDate: '' })
                 }}
                 className="flex-1 px-4 py-3 bg-muted text-foreground rounded-lg hover:bg-muted/80 transition-colors font-medium"
               >
@@ -2994,20 +3144,22 @@ function ShipmentsSection({
   postDateFilterEnd,
   shipmentOriginFilter,
   shipmentDestinationFilter,
-  shipmentWilayaFilter,
+  shipmentWilayaFilters,
   shipmentCorridorOriginFilter,
   shipmentCorridorDestinationFilter,
   shipmentBetweenWilaya1Filter,
   shipmentBetweenWilaya2Filter,
   shipmentCapacityFilter,
+  shipmentVolumeFilter,
   setShipmentOriginFilter,
   setShipmentDestinationFilter,
-  setShipmentWilayaFilter,
+  setShipmentWilayaFilters,
   setShipmentCorridorOriginFilter,
   setShipmentCorridorDestinationFilter,
   setShipmentBetweenWilaya1Filter,
   setShipmentBetweenWilaya2Filter,
   setShipmentCapacityFilter,
+  setShipmentVolumeFilter,
   setPostDateFilterStart,
   setPostDateFilterEnd,
   advanceShipmentStatus,
@@ -3030,16 +3182,29 @@ function ShipmentsSection({
     const candidates = (routeItems || [])
       .filter((route) => route?.dbId)
       .filter((route) => getPostOwnerKey(route) !== getPostOwnerKey(shipment))
+      .filter((route) => {
+        const shipmentWeightValue = parseNumericInput(shipment.weight)
+        const shipmentVolumeValue = parseNumericInput(shipment.volume ?? shipment.capacity)
+        const routeCapacityValue = parseNumericInput(route.available ?? route.capacity)
+        const routeVolumeValue = parseNumericInput(route.volume ?? route.available ?? route.capacity)
+
+        if (!Number.isFinite(shipmentWeightValue) || !Number.isFinite(shipmentVolumeValue)) return false
+        if (!Number.isFinite(routeCapacityValue) || !Number.isFinite(routeVolumeValue)) return false
+
+        return routeCapacityValue >= shipmentWeightValue && routeVolumeValue >= shipmentVolumeValue
+      })
       .map((route) => ({
         ...route,
         relevanceScore: computeWeightedRouteRelevance({
           shipmentOrigin: shipment.origin,
           shipmentDestination: shipment.destination,
           shipmentWeight: shipment.weight,
+          shipmentVolume: shipment.volume ?? shipment.capacity,
           shipmentDate: shipment.date,
           routeFrom: route.from,
           routeTo: route.to,
           routeAvailable: route.available,
+          routeVolume: route.volume ?? route.available ?? route.capacity,
           routeAvailableCity: route.availableCity,
           routeDeparture: route.routeDateRaw || route.departure,
           routePostType: route.postType,
@@ -3105,6 +3270,13 @@ function ShipmentsSection({
             onChange={(e) => setShipmentCapacityFilter(e.target.value)}
             className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
           />
+          <input
+            type="number"
+            placeholder={tr(uiLanguage, 'Filter by volume (m^3 max)', 'Filtrer par volume (m^3 max)', '   ')}
+            value={shipmentVolumeFilter}
+            onChange={(e) => setShipmentVolumeFilter(e.target.value)}
+            className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+          />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4 items-center">
           <div className="flex items-center gap-2">
@@ -3139,10 +3311,10 @@ function ShipmentsSection({
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-          <WilayaSearch
+          <WilayaSelectorMulti
             label={tr(uiLanguage, 'Filter by Wilaya', 'Filtrer par Wilaya')}
-            value={shipmentWilayaFilter}
-            onChange={(nextValue) => setShipmentWilayaFilter(nextValue)}
+            values={shipmentWilayaFilters}
+            onChange={(nextValues) => setShipmentWilayaFilters(nextValues)}
             placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
           />
           <WilayaSearch
@@ -3189,12 +3361,13 @@ function ShipmentsSection({
             onClick={() => {
               setShipmentOriginFilter('')
               setShipmentDestinationFilter('')
-              setShipmentWilayaFilter('')
+              setShipmentWilayaFilters([])
               setShipmentCorridorOriginFilter('')
               setShipmentCorridorDestinationFilter('')
               setShipmentBetweenWilaya1Filter('')
               setShipmentBetweenWilaya2Filter('')
               setShipmentCapacityFilter('')
+              setShipmentVolumeFilter('')
               setPostDateFilterStart('')
               setPostDateFilterEnd('')
             }}
@@ -3275,21 +3448,23 @@ function RoutesSection({
   postDateFilterEnd,
   routeOriginFilter,
   routeDestinationFilter,
-  routeWilayaFilter,
+  routeWilayaFilters,
   routeCorridorOriginFilter,
   routeCorridorDestinationFilter,
   routeBetweenWilaya1Filter,
   routeBetweenWilaya2Filter,
   routeCapacityFilter,
+  routeVolumeFilter,
   routeVehicleTypeFilter,
   setRouteOriginFilter,
   setRouteDestinationFilter,
-  setRouteWilayaFilter,
+  setRouteWilayaFilters,
   setRouteCorridorOriginFilter,
   setRouteCorridorDestinationFilter,
   setRouteBetweenWilaya1Filter,
   setRouteBetweenWilaya2Filter,
   setRouteCapacityFilter,
+  setRouteVolumeFilter,
   setRouteVehicleTypeFilter,
   setPostDateFilterStart,
   setPostDateFilterEnd,
@@ -3312,16 +3487,29 @@ function RoutesSection({
     const candidates = (shipmentItems || [])
       .filter((shipment) => shipment?.dbId)
       .filter((shipment) => getPostOwnerKey(shipment) !== getPostOwnerKey(route))
+      .filter((shipment) => {
+        const routeCapacityValue = parseNumericInput(route.available ?? route.capacity)
+        const routeVolumeValue = parseNumericInput(route.volume ?? route.available ?? route.capacity)
+        const shipmentWeightValue = parseNumericInput(shipment.weight)
+        const shipmentVolumeValue = parseNumericInput(shipment.volume ?? shipment.capacity)
+
+        if (!Number.isFinite(routeCapacityValue) || !Number.isFinite(routeVolumeValue)) return false
+        if (!Number.isFinite(shipmentWeightValue) || !Number.isFinite(shipmentVolumeValue)) return false
+
+        return routeCapacityValue >= shipmentWeightValue && routeVolumeValue >= shipmentVolumeValue
+      })
       .map((shipment) => ({
         ...shipment,
         relevanceScore: computeWeightedRouteRelevance({
           shipmentOrigin: shipment.origin,
           shipmentDestination: shipment.destination,
           shipmentWeight: shipment.weight,
+          shipmentVolume: shipment.volume ?? shipment.capacity,
           shipmentDate: shipment.date,
           routeFrom: route.from,
           routeTo: route.to,
           routeAvailable: route.available,
+          routeVolume: route.volume ?? route.available ?? route.capacity,
           routeAvailableCity: route.availableCity,
           routeDeparture: route.routeDateRaw || route.departure,
           routePostType: route.postType,
@@ -3387,6 +3575,13 @@ function RoutesSection({
             onChange={(e) => setRouteCapacityFilter(e.target.value)}
             className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
           />
+          <input
+            type="number"
+            placeholder={tr(uiLanguage, 'Search by volume (m^3)', 'Rechercher par volume (m^3)', '   ')}
+            value={routeVolumeFilter}
+            onChange={(e) => setRouteVolumeFilter(e.target.value)}
+            className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+          />
           <select
             value={routeVehicleTypeFilter}
             onChange={(e) => setRouteVehicleTypeFilter(e.target.value)}
@@ -3433,10 +3628,10 @@ function RoutesSection({
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-          <WilayaSearch
+          <WilayaSelectorMulti
             label={tr(uiLanguage, 'Filter by Wilaya', 'Filtrer par Wilaya')}
-            value={routeWilayaFilter}
-            onChange={(nextValue) => setRouteWilayaFilter(nextValue)}
+            values={routeWilayaFilters}
+            onChange={(nextValues) => setRouteWilayaFilters(nextValues)}
             placeholder={tr(uiLanguage, 'Search wilaya', 'Rechercher wilaya')}
           />
           <WilayaSearch
@@ -3483,12 +3678,13 @@ function RoutesSection({
             onClick={() => {
               setRouteOriginFilter('')
               setRouteDestinationFilter('')
-              setRouteWilayaFilter('')
+              setRouteWilayaFilters([])
               setRouteCorridorOriginFilter('')
               setRouteCorridorDestinationFilter('')
               setRouteBetweenWilaya1Filter('')
               setRouteBetweenWilaya2Filter('')
               setRouteCapacityFilter('')
+              setRouteVolumeFilter('')
               setRouteVehicleTypeFilter('')
               setRouteTypeFilter('all')
               setPostDateFilterStart('')
@@ -5983,10 +6179,12 @@ function computeWeightedRouteRelevance({
   shipmentOrigin,
   shipmentDestination,
   shipmentWeight,
+  shipmentVolume,
   shipmentDate,
   routeFrom,
   routeTo,
   routeAvailable,
+  routeVolume,
   routeAvailableCity,
   routeDeparture,
   routePostType,
@@ -6067,12 +6265,30 @@ function computeWeightedRouteRelevance({
 
   const shipmentKg = parseNumericInput(shipmentWeight)
   const routeAvailableKg = parseNumericInput(routeAvailable)
+  const shipmentM3 = parseNumericInput(shipmentVolume)
+  const routeAvailableM3 = parseNumericInput(routeVolume)
+
+  if (
+    (Number.isFinite(shipmentKg) && Number.isFinite(routeAvailableKg) && routeAvailableKg < shipmentKg)
+    || (Number.isFinite(shipmentM3) && Number.isFinite(routeAvailableM3) && routeAvailableM3 < shipmentM3)
+  ) {
+    return 0
+  }
+
   let capacityScore = 0
   if (Number.isFinite(shipmentKg) && Number.isFinite(routeAvailableKg)) {
     const capacityGap = Math.max(shipmentKg - routeAvailableKg, 0)
     capacityScore = clamp(20 - ((capacityGap / Math.max(shipmentKg, 1)) * 20), 0, 20)
   } else if (Number.isFinite(routeAvailableKg)) {
     capacityScore = 8
+  }
+
+  let volumeScore = 0
+  if (Number.isFinite(shipmentM3) && Number.isFinite(routeAvailableM3)) {
+    const volumeGap = Math.max(shipmentM3 - routeAvailableM3, 0)
+    volumeScore = clamp(20 - ((volumeGap / Math.max(shipmentM3, 1)) * 20), 0, 20)
+  } else if (Number.isFinite(routeAvailableM3)) {
+    volumeScore = 8
   }
 
   let routeShapeScore = 0
@@ -6109,12 +6325,12 @@ function computeWeightedRouteRelevance({
     directionScore = originProgress <= destinationProgress ? 5 : 1
   }
 
-  const totalScore = dateScore + capacityScore + routeScore + routeShapeScore + corridorScore + directionScore
+  const totalScore = dateScore + capacityScore + volumeScore + routeScore + routeShapeScore + corridorScore + directionScore
   return Math.min(100, Math.max(0, Math.round(totalScore)))
 }
 
 // Shipment Card Component
-function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, capacity, dimensions, category, description, date, status, type, photo, ownerName = '', ownershipTag = '', routeItems, onStatusChange, onDelete, onToggleDetails, showDetails, isReadOnly = false, showInvite = false, onInvite, inviteSent = false, inviteDisabled = false }) {
+function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, capacity, volume, dimensions, category, description, date, status, type, photo, ownerName = '', ownershipTag = '', routeItems, onStatusChange, onDelete, onToggleDetails, showDetails, isReadOnly = false, showInvite = false, onInvite, inviteSent = false, inviteDisabled = false }) {
   const t = (en, fr, ar = en) => tr(uiLanguage, en, fr, ar)
   const [relevantRouteFilter, setRelevantRouteFilter] = useState('all')
   const statusActionLabel = getShipmentStatusActionLabel(status)
@@ -6162,15 +6378,28 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
   const shipmentCategory = category || type || 'general'
   const scoredRelevantRoutePosts = (routeItems || [])
     .filter(route => route.id !== id)
+    .filter((route) => {
+      const shipmentWeightValue = parseNumericInput(weight)
+      const shipmentVolumeValue = parseNumericInput(volume ?? capacity)
+      const routeCapacityValue = parseNumericInput(route.available ?? route.capacity)
+      const routeVolumeValue = parseNumericInput(route.volume ?? route.available ?? route.capacity)
+
+      if (!Number.isFinite(shipmentWeightValue) || !Number.isFinite(shipmentVolumeValue)) return false
+      if (!Number.isFinite(routeCapacityValue) || !Number.isFinite(routeVolumeValue)) return false
+
+      return routeCapacityValue >= shipmentWeightValue && routeVolumeValue >= shipmentVolumeValue
+    })
     .map(route => {
       const score = computeWeightedRouteRelevance({
         shipmentOrigin: origin,
         shipmentDestination: destination,
         shipmentWeight: weight,
+        shipmentVolume: volume ?? capacity,
         shipmentDate: date,
         routeFrom: route.from,
         routeTo: route.to,
         routeAvailable: route.available,
+        routeVolume: route.volume ?? route.available ?? route.capacity,
         routeAvailableCity: route.availableCity,
         routeDeparture: route.routeDateRaw || route.departure,
         routePostType: route.postType,
@@ -6245,7 +6474,7 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
         </div>
         <div className="text-right">
           <span className="text-foreground font-medium block">{formatWeightKg(weight)}</span>
-          {capacity && <span className="text-xs text-muted-foreground">{t('Dimensions', 'Dimensions')}: {formatVolumeM3(capacity)}</span>}
+          {(volume || capacity) && <span className="text-xs text-muted-foreground">{t('Dimensions', 'Dimensions')}: {formatVolumeM3(volume || capacity)}</span>}
         </div>
       </div>
 
@@ -6283,7 +6512,7 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
           <div className="space-y-1 pb-2">
             <p className="text-xs text-muted-foreground">{t('Item', 'Article')}: <span className="text-foreground">{itemName || t('N/A', 'N/A')}</span></p>
             <p className="text-xs text-muted-foreground">{t('Weight', 'Poids')}: <span className="text-foreground">{formatWeightKg(weight)}</span></p>
-            <p className="text-xs text-muted-foreground">{t('Dimensions', 'Dimensions')}: <span className="text-foreground">{capacity ? formatVolumeM3(capacity) : t('N/A', 'N/A')}</span></p>
+            <p className="text-xs text-muted-foreground">{t('Dimensions', 'Dimensions')}: <span className="text-foreground">{(volume || capacity) ? formatVolumeM3(volume || capacity) : t('N/A', 'N/A')}</span></p>
             <p className="text-xs text-muted-foreground">{t('Category', 'Categorie')}: <span className="text-foreground">{typeLabel[shipmentCategory] || t('General', 'General')}</span></p>
             <p className="text-xs text-muted-foreground">{t('Dimensions', 'Dimensions')}: <span className="text-foreground">{dimensions || t('N/A', 'N/A')}</span></p>
             <p className="text-xs text-muted-foreground">{t('Route', 'Trajet')}: <span className="text-foreground">{origin} {t('to', 'vers')} {destination}</span></p>
@@ -6357,22 +6586,35 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
 }
 
 // Route Card Component
-function RouteCard({ uiLanguage, id, from, to, capacity, available, departure, postType = 'full_route', availableCity = '', vehicleAllocation = [], isLive = false, driverName = 'Unknown driver', currentStop = '', ownerName = '', ownershipTag = '', shipmentItems, onDelete, onContact, contactLabel = 'Send Invitation', contactSent = false, contactDisabled = false, onContactRelevantShipment, isRelevantShipmentInvitationSent, onToggleDetails, showDetails, showNestedRelevant = true }) {
+function RouteCard({ uiLanguage, id, from, to, capacity, volume, available, departure, postType = 'full_route', availableCity = '', vehicleAllocation = [], isLive = false, driverName = 'Unknown driver', currentStop = '', ownerName = '', ownershipTag = '', shipmentItems, onDelete, onContact, contactLabel = 'Send Invitation', contactSent = false, contactDisabled = false, onContactRelevantShipment, isRelevantShipmentInvitationSent, onToggleDetails, showDetails, showNestedRelevant = true }) {
   const t = (en, fr, ar = en) => tr(uiLanguage, en, fr, ar)
   const capacityNum = parseFloat(capacity)
   const availableNum = parseFloat(available)
   const utilizationPercent = capacityNum > 0 ? ((capacityNum - availableNum) / capacityNum) * 100 : 0
   const isAvailabilityOnly = postType === 'availability_only'
   const relevantShipments = (shipmentItems || [])
+    .filter(shipment => {
+      const shipmentWeightValue = parseNumericInput(shipment.weight)
+      const shipmentVolumeValue = parseNumericInput(shipment.volume ?? shipment.capacity)
+      const routeCapacityValue = parseNumericInput(available)
+      const routeVolumeValue = parseNumericInput(volume ?? available)
+
+      if (!Number.isFinite(shipmentWeightValue) || !Number.isFinite(shipmentVolumeValue)) return false
+      if (!Number.isFinite(routeCapacityValue) || !Number.isFinite(routeVolumeValue)) return false
+
+      return routeCapacityValue >= shipmentWeightValue && routeVolumeValue >= shipmentVolumeValue
+    })
     .map(shipment => {
       const score = computeWeightedRouteRelevance({
         shipmentOrigin: shipment.origin,
         shipmentDestination: shipment.destination,
         shipmentWeight: shipment.weight,
+        shipmentVolume: shipment.volume ?? shipment.capacity,
         shipmentDate: shipment.date,
         routeFrom: from,
         routeTo: to,
         routeAvailable: available,
+        routeVolume: volume ?? available,
         routeAvailableCity: availableCity,
         routeDeparture: departure,
         routePostType: postType,
@@ -6449,6 +6691,9 @@ function RouteCard({ uiLanguage, id, from, to, capacity, available, departure, p
           <span className="text-muted-foreground">{t('Capacity', 'Capacite')}: {formatWeightKg(capacity)}</span>
           <span className="text-foreground font-medium">{formatWeightKg(available)} {t('available', 'disponible')}</span>
         </div>
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-muted-foreground">{t('Volume', 'Volume')}: {formatVolumeM3(volume || capacity)}</span>
+        </div>
         <div className="flex items-center justify-between text-xs gap-3">
           <span className="text-muted-foreground">{t('Vehicles', 'Vehicules')}: {formatVehicleAllocationSummary(vehicleAllocation, capacity)}</span>
         </div>
@@ -6481,6 +6726,7 @@ function RouteCard({ uiLanguage, id, from, to, capacity, available, departure, p
             <p className="text-xs text-muted-foreground">{t('Post Type', 'Type de publication')}: <span className="text-foreground">{isAvailabilityOnly ? t('Availability only', 'Disponibilite seulement') : t('Full route', 'Trajet complet')}</span></p>
             <p className="text-xs text-muted-foreground">{t('Route', 'Trajet')}: <span className="text-foreground">{isAvailabilityOnly ? `${t('Available on', 'Disponible sur')} ${availableCity || from || t('N/A', 'N/A')}` : `${from} ${t('to', 'vers')} ${to}`}</span></p>
             <p className="text-xs text-muted-foreground">{t('Capacity', 'Capacite')}: <span className="text-foreground">{formatWeightKg(capacity)}</span></p>
+            <p className="text-xs text-muted-foreground">{t('Volume', 'Volume')}: <span className="text-foreground">{formatVolumeM3(volume || capacity)}</span></p>
             <p className="text-xs text-muted-foreground">{t('Available', 'Disponible')}: <span className="text-foreground">{formatWeightKg(available)}</span></p>
             <p className="text-xs text-muted-foreground">{t('Vehicles', 'Vehicules')}: <span className="text-foreground">{formatVehicleAllocationSummary(vehicleAllocation, capacity)}</span></p>
             <p className="text-xs text-muted-foreground">{t('Driver', 'Conducteur')}: <span className="text-foreground">{driverName}</span></p>
@@ -6546,7 +6792,7 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
   const [isEditingRoute, setIsEditingRoute] = useState(false)
   const [isSavingEdit, setIsSavingEdit] = useState(false)
   const [shipmentDraft, setShipmentDraft] = useState({ itemName: '', origin: '', destination: '', weight: '', capacity: '', date: '', category: 'general', description: '' })
-  const [routeDraft, setRouteDraft] = useState({ postType: 'full_route', from: '', to: '', capacity: '', vehicleCount: '1', vehicleAllocations: [createVehicleAllocationInput()], departure: '', availableCity: '', availabilityStartDate: '', availabilityEndDate: '' })
+  const [routeDraft, setRouteDraft] = useState({ postType: 'full_route', from: '', to: '', capacity: '', volume: '', vehicleCount: '1', vehicleAllocations: [createVehicleAllocationInput()], departure: '', availableCity: '', availabilityStartDate: '', availabilityEndDate: '' })
 
   const selectedShipmentIsMine = selectedShipment
     ? getPostOwnerKey(selectedShipment) === currentUserKey
@@ -6583,11 +6829,13 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
       from: selectedRoute.from || '',
       to: selectedRoute.to || '',
       capacity: selectedRoute.capacity || '',
+      volume: selectedRoute.volume || '',
       vehicleCount: String(selectedVehicleAllocations.length || 1),
       vehicleAllocations: selectedVehicleAllocations.length > 0
         ? selectedVehicleAllocations.map((entry) => createVehicleAllocationInput({
           type: entry.type || entry.name,
           capacity: String(entry.capacity ?? ''),
+          volume: String(entry.volume ?? ''),
         }))
         : [createVehicleAllocationInput({ capacity: String(selectedRoute.capacity || '') })],
       departure: selectedRoute.postType === 'full_route' ? (selectedRoute.routeDateRaw || selectedRoute.departure || '') : '',
@@ -6620,16 +6868,18 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
       })
       .filter((route) => {
         const shipmentWeightValue = parseNumericInput(selectedShipment.weight)
+        const shipmentVolumeValue = parseNumericInput(selectedShipment.volume ?? selectedShipment.capacity)
         const routeDateSource = route.routeDateRaw || route.departure
 
         if (!isShipmentDateMatchingRouteDate(selectedShipment.date, routeDateSource, route.postType)) return false
 
-        if (!Number.isFinite(shipmentWeightValue)) return false
+        if (!Number.isFinite(shipmentWeightValue) || !Number.isFinite(shipmentVolumeValue)) return false
 
         const routeCapacityValue = parseNumericInput(route.available ?? route.capacity)
-        if (!Number.isFinite(routeCapacityValue)) return false
+        const routeVolumeValue = parseNumericInput(route.volume ?? route.available ?? route.capacity)
+        if (!Number.isFinite(routeCapacityValue) || !Number.isFinite(routeVolumeValue)) return false
 
-        return routeCapacityValue >= shipmentWeightValue
+        return routeCapacityValue >= shipmentWeightValue && routeVolumeValue >= shipmentVolumeValue
       })
       .map(route => ({
         availabilityDistanceKm: (() => {
@@ -6644,10 +6894,12 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
           shipmentOrigin: selectedShipment.origin,
           shipmentDestination: selectedShipment.destination,
           shipmentWeight: selectedShipment.weight,
+          shipmentVolume: selectedShipment.volume ?? selectedShipment.capacity,
           shipmentDate: selectedShipment.date,
           routeFrom: route.from,
           routeTo: route.to,
           routeAvailable: route.available,
+          routeVolume: route.volume ?? route.available ?? route.capacity,
           routeAvailableCity: route.availableCity,
           routeDeparture: route.routeDateRaw || route.departure,
           routePostType: route.postType,
@@ -6695,10 +6947,12 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
           shipmentOrigin: shipment.origin,
           shipmentDestination: shipment.destination,
           shipmentWeight: shipment.weight,
+          shipmentVolume: shipment.volume ?? shipment.capacity,
           shipmentDate: shipment.date,
           routeFrom: selectedRoute.from,
           routeTo: selectedRoute.to,
           routeAvailable: selectedRoute.available,
+          routeVolume: selectedRoute.volume ?? selectedRoute.available ?? selectedRoute.capacity,
           routeAvailableCity: selectedRoute.availableCity,
           routeDeparture: selectedRoute.routeDateRaw || selectedRoute.departure,
           routePostType: selectedRoute.postType,
@@ -6774,7 +7028,7 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
               </div>
               <div className="rounded-lg border border-border bg-muted p-3">
                 <p className="text-xs text-muted-foreground">{t('Dimensions', 'Dimensions')}</p>
-                <p className="text-sm font-semibold text-foreground mt-1">{selectedShipment.capacity ? formatVolumeM3(selectedShipment.capacity) : t('N/A', 'N/A')}</p>
+                <p className="text-sm font-semibold text-foreground mt-1">{(selectedShipment.volume || selectedShipment.capacity) ? formatVolumeM3(selectedShipment.volume || selectedShipment.capacity) : t('N/A', 'N/A')}</p>
               </div>
             </div>
 
@@ -6872,6 +7126,10 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
                 <p className="text-xs text-muted-foreground">{t('Capacity', 'Capacite')}</p>
                 <p className="text-sm font-semibold text-foreground mt-1">{formatWeightKg(selectedRoute.capacity)}</p>
               </div>
+              <div className="rounded-lg border border-border bg-muted p-3">
+                <p className="text-xs text-muted-foreground">{t('Volume', 'Volume')}</p>
+                <p className="text-sm font-semibold text-foreground mt-1">{formatVolumeM3(selectedRoute.volume || selectedRoute.capacity)}</p>
+              </div>
               <div className="rounded-lg border border-border bg-muted p-3 md:col-span-2">
                 <p className="text-xs text-muted-foreground">{t('Vehicles', 'Vehicules')}</p>
                 <p className="text-sm font-semibold text-foreground mt-1">{formatVehicleAllocationSummary(selectedRoute.vehicleAllocation, selectedRoute.capacity)}</p>
@@ -6915,6 +7173,7 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
                   <input value={routeDraft.from} onChange={(e) => setRouteDraft((prev) => ({ ...prev, from: e.target.value }))} placeholder={t('Departure city', 'Ville de depart')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
                   <input value={routeDraft.to} onChange={(e) => setRouteDraft((prev) => ({ ...prev, to: e.target.value }))} placeholder={t('Destination city', 'Ville de destination')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
                   <input value={routeDraft.capacity} onChange={(e) => setRouteDraft((prev) => ({ ...prev, capacity: e.target.value }))} placeholder={t('Capacity (kg)', 'Capacite (kg)')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                  <input value={routeDraft.volume} onChange={(e) => setRouteDraft((prev) => ({ ...prev, volume: e.target.value }))} placeholder={t('Volume (m^3)', 'Volume (m^3)')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
