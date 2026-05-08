@@ -1174,6 +1174,7 @@ export default function DashboardPage() {
 
     try {
       console.log('Creating availability payload', payload)
+      const apiBaseUrl = await discoverApiBaseUrl()
       const response = await axios.post(`${apiBaseUrl}/posts/availability`, payload, {
         headers: { token },
         timeout: 15000,
