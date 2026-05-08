@@ -12,12 +12,18 @@ export default function WilayaSelectorMulti({
   placeholder = 'Select wilayas',
   referenceWilaya = '',
   required = false,
+  options = null,
 }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [wilayas, setWilayas] = useState([])
 
   useEffect(() => {
+    if (Array.isArray(options)) {
+      setWilayas(options)
+      return
+    }
+
     const fetchWilayas = async () => {
       try {
         const endpoint = referenceWilaya
@@ -32,7 +38,7 @@ export default function WilayaSelectorMulti({
     }
 
     fetchWilayas()
-  }, [referenceWilaya])
+  }, [referenceWilaya, options])
 
   const filtered = useMemo(() => {
     const normalized = search.trim().toLowerCase()

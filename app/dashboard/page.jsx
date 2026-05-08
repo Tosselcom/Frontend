@@ -370,15 +370,18 @@ function formatVehicleAllocationSummary(vehicleAllocation, fallbackCapacity) {
 }
 
 function routeHasVehicleType(route, vehicleTypeFilter) {
-  const normalizedFilter = normalizeRouteText(vehicleTypeFilter)
-  if (!normalizedFilter) return false
+  const normalizedFilters = Array.isArray(vehicleTypeFilter)
+    ? vehicleTypeFilter.map((value) => normalizeRouteText(value)).filter(Boolean)
+    : [normalizeRouteText(vehicleTypeFilter)].filter(Boolean)
+
+  if (normalizedFilters.length === 0) return false
 
   const vehicleAllocations = Array.isArray(route?.vehicleAllocation) ? route.vehicleAllocation : []
   return vehicleAllocations.some((entry) => {
     const normalizedType = normalizeVehicleType(entry?.type || entry?.name || entry?.label)
     const normalizedTypeText = normalizeRouteText(normalizedType)
     const normalizedLabelText = normalizeRouteText(getVehicleTypeLabel(normalizedType))
-    return normalizedTypeText.includes(normalizedFilter) || normalizedLabelText.includes(normalizedFilter)
+    return normalizedFilters.some((filter) => normalizedTypeText.includes(filter) || normalizedLabelText.includes(filter))
   })
 }
 
@@ -586,6 +589,7 @@ export default function DashboardPage() {
   const [shipmentOriginFilter, setShipmentOriginFilter] = useState('')
   const [shipmentDestinationFilter, setShipmentDestinationFilter] = useState('')
   const [shipmentWilayaFilters, setShipmentWilayaFilters] = useState([])
+  const [shipmentCategoryFilter, setShipmentCategoryFilter] = useState('')
   const [shipmentCapacityFilter, setShipmentCapacityFilter] = useState('')
   const [shipmentVolumeFilter, setShipmentVolumeFilter] = useState('')
   const [shipmentCorridorOriginFilter, setShipmentCorridorOriginFilter] = useState('')
@@ -601,7 +605,7 @@ export default function DashboardPage() {
   const [routeBetweenWilaya2Filter, setRouteBetweenWilaya2Filter] = useState('')
   const [routeCapacityFilter, setRouteCapacityFilter] = useState('')
   const [routeVolumeFilter, setRouteVolumeFilter] = useState('')
-  const [routeVehicleTypeFilter, setRouteVehicleTypeFilter] = useState('')
+  const [routeVehicleTypeFilters, setRouteVehicleTypeFilters] = useState([])
   const [postDateFilterStart, setPostDateFilterStart] = useState('')
   const [postDateFilterEnd, setPostDateFilterEnd] = useState('')
 
@@ -647,7 +651,7 @@ export default function DashboardPage() {
   const [shipmentItems, setShipmentItems] = useState([])
   
   const [routeItems, setRouteItems] = useState([])
-  
+
   const [matchingItems, setMatchingItems] = useState([])
   const [receivedInvitations, setReceivedInvitations] = useState([])
   const [sentInvitations, setSentInvitations] = useState([])
@@ -967,22 +971,6 @@ export default function DashboardPage() {
       description: '',
       photo: '',
     })
-  }
-
-  const handleShipmentPhotoUpload = (event) => {
-    const file = event.target.files?.[0]
-    if (!file) return
-
-    if (!file.type.startsWith('image/')) {
-      pushNotification('Please upload a valid image file')
-      return
-    }
-
-    const reader = new FileReader()
-    reader.onload = () => {
-      setShipmentFormData(prev => ({ ...prev, photo: reader.result }))
-    }
-    reader.readAsDataURL(file)
   }
 
   const handleSubmitShipment = async () => {
@@ -2075,7 +2063,10 @@ export default function DashboardPage() {
         : numericVolume <= numericVolumeFilter
     )
 
-    const vehicleTypeMatches = !vehicleTypeFilterValue || routeHasVehicleType(item, vehicleTypeFilterValue)
+    const hasVehicleTypeFilters = Array.isArray(vehicleTypeFilterValue)
+      ? vehicleTypeFilterValue.length > 0
+      : Boolean(vehicleTypeFilterValue)
+    const vehicleTypeMatches = !hasVehicleTypeFilters || routeHasVehicleType(item, vehicleTypeFilterValue)
 
     return geometryMatches && corridorGeometryMatches && betweenWilayasMatches && wilayaMatches && capacityMatches && volumeMatches && vehicleTypeMatches && typeMatches
   }
@@ -2103,8 +2094,8 @@ export default function DashboardPage() {
         getCapacity: (post) => post.capacity,
         getVolume: (post) => post.volume ?? post.capacity,
         getAvailableCity: null,
-      })),
-    [shipmentItems, shipmentOriginFilter, shipmentDestinationFilter, shipmentWilayaFilters, shipmentCorridorOriginFilter, shipmentCorridorDestinationFilter, shipmentBetweenWilaya1Filter, shipmentBetweenWilaya2Filter, shipmentCapacityFilter, shipmentVolumeFilter, postDateFilterStart, postDateFilterEnd]
+      }) && (!shipmentCategoryFilter || normalizeRouteText(item.category || item.type || item.itemCategory) === normalizeRouteText(shipmentCategoryFilter))),
+    [shipmentItems, shipmentOriginFilter, shipmentDestinationFilter, shipmentWilayaFilters, shipmentCorridorOriginFilter, shipmentCorridorDestinationFilter, shipmentBetweenWilaya1Filter, shipmentBetweenWilaya2Filter, shipmentCategoryFilter, shipmentCapacityFilter, shipmentVolumeFilter, postDateFilterStart, postDateFilterEnd]
   )
 
   const filteredRoutes = useMemo(
@@ -2129,7 +2120,7 @@ export default function DashboardPage() {
         betweenWilaya2FilterValue: routeBetweenWilaya2Filter,
         capacityFilterValue: routeCapacityFilter,
         volumeFilterValue: routeVolumeFilter,
-        vehicleTypeFilterValue: routeVehicleTypeFilter,
+        vehicleTypeFilterValue: routeVehicleTypeFilters,
         capacityComparator: 'gte',
         volumeComparator: 'gte',
         typeMatches:
@@ -2144,7 +2135,7 @@ export default function DashboardPage() {
         getAvailableCity: (post) => post.availableCity,
         corridorSegmentValue: item?.availableCity || '',
       })),
-    [routeItems, routeOriginFilter, routeDestinationFilter, routeWilayaFilters, routeCorridorOriginFilter, routeCorridorDestinationFilter, routeBetweenWilaya1Filter, routeBetweenWilaya2Filter, routeCapacityFilter, routeVolumeFilter, routeVehicleTypeFilter, routeTypeFilter, postDateFilterStart, postDateFilterEnd]
+    [routeItems, routeOriginFilter, routeDestinationFilter, routeWilayaFilters, routeCorridorOriginFilter, routeCorridorDestinationFilter, routeBetweenWilaya1Filter, routeBetweenWilaya2Filter, routeCapacityFilter, routeVolumeFilter, routeVehicleTypeFilters, routeTypeFilter, postDateFilterStart, postDateFilterEnd]
   )
 
   return (
@@ -2366,6 +2357,7 @@ export default function DashboardPage() {
                     shipmentOriginFilter={shipmentOriginFilter}
                     shipmentDestinationFilter={shipmentDestinationFilter}
                     shipmentWilayaFilters={shipmentWilayaFilters}
+                    shipmentCategoryFilter={shipmentCategoryFilter}
                     shipmentCorridorOriginFilter={shipmentCorridorOriginFilter}
                     shipmentCorridorDestinationFilter={shipmentCorridorDestinationFilter}
                     shipmentBetweenWilaya1Filter={shipmentBetweenWilaya1Filter}
@@ -2375,6 +2367,7 @@ export default function DashboardPage() {
                     setShipmentOriginFilter={setShipmentOriginFilter}
                     setShipmentDestinationFilter={setShipmentDestinationFilter}
                     setShipmentWilayaFilters={setShipmentWilayaFilters}
+                    setShipmentCategoryFilter={setShipmentCategoryFilter}
                     setShipmentCorridorOriginFilter={setShipmentCorridorOriginFilter}
                     setShipmentCorridorDestinationFilter={setShipmentCorridorDestinationFilter}
                     setShipmentBetweenWilaya1Filter={setShipmentBetweenWilaya1Filter}
@@ -2412,7 +2405,7 @@ export default function DashboardPage() {
                     routeBetweenWilaya2Filter={routeBetweenWilaya2Filter}
                     routeCapacityFilter={routeCapacityFilter}
                     routeVolumeFilter={routeVolumeFilter}
-                    routeVehicleTypeFilter={routeVehicleTypeFilter}
+                    routeVehicleTypeFilters={routeVehicleTypeFilters}
                     setRouteOriginFilter={setRouteOriginFilter}
                     setRouteDestinationFilter={setRouteDestinationFilter}
                     setRouteWilayaFilters={setRouteWilayaFilters}
@@ -2422,7 +2415,7 @@ export default function DashboardPage() {
                     setRouteBetweenWilaya2Filter={setRouteBetweenWilaya2Filter}
                     setRouteCapacityFilter={setRouteCapacityFilter}
                     setRouteVolumeFilter={setRouteVolumeFilter}
-                    setRouteVehicleTypeFilter={setRouteVehicleTypeFilter}
+                    setRouteVehicleTypeFilters={setRouteVehicleTypeFilters}
                     setPostDateFilterStart={setPostDateFilterStart}
                     setPostDateFilterEnd={setPostDateFilterEnd}
                     deleteRoute={deleteRoute}
@@ -2924,27 +2917,6 @@ export default function DashboardPage() {
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">{tr(uiLanguage, 'Item Photo (optional)', 'Photo de l article (optionnelle)')}</label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleShipmentPhotoUpload}
-                  className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground file:mr-3 file:px-3 file:py-1.5 file:border-0 file:rounded-md file:bg-primary file:text-primary-foreground file:text-sm file:font-medium"
-                />
-                {shipmentFormData.photo && (
-                  <div className="mt-3">
-                    <Image
-                      src={shipmentFormData.photo}
-                      alt={tr(uiLanguage, 'Shipment preview', 'Apercu de la livraison')}
-                      width={960}
-                      height={288}
-                      unoptimized
-                      className="w-full h-36 object-cover rounded-lg border border-border"
-                    />
-                  </div>
-                )}
-              </div>
             </div>
             
             <div className="flex gap-3 mt-6">
@@ -3146,6 +3118,7 @@ function ShipmentsSection({
   shipmentOriginFilter,
   shipmentDestinationFilter,
   shipmentWilayaFilters,
+  shipmentCategoryFilter,
   shipmentCorridorOriginFilter,
   shipmentCorridorDestinationFilter,
   shipmentBetweenWilaya1Filter,
@@ -3155,6 +3128,7 @@ function ShipmentsSection({
   setShipmentOriginFilter,
   setShipmentDestinationFilter,
   setShipmentWilayaFilters,
+  setShipmentCategoryFilter,
   setShipmentCorridorOriginFilter,
   setShipmentCorridorDestinationFilter,
   setShipmentBetweenWilaya1Filter,
@@ -3264,6 +3238,22 @@ function ShipmentsSection({
             onChange={(e) => setShipmentDestinationFilter(e.target.value)}
             className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
           />
+          <select
+            value={shipmentCategoryFilter}
+            onChange={(e) => setShipmentCategoryFilter(e.target.value)}
+            className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            <option value="">{tr(uiLanguage, 'All item categories', 'Toutes les categories d article', ' ')}</option>
+            <option value="general">{tr(uiLanguage, 'General Goods', 'Marchandises generales')}</option>
+            <option value="furniture">{tr(uiLanguage, 'Furniture', 'Meubles')}</option>
+            <option value="appliances">{tr(uiLanguage, 'Appliances', 'Appareils menagers')}</option>
+            <option value="fragile">{tr(uiLanguage, 'Fragile', 'Fragile')}</option>
+            <option value="perishable">{tr(uiLanguage, 'Perishable', 'Perissable')}</option>
+            <option value="hazardous">{tr(uiLanguage, 'Hazardous', 'Dangereux')}</option>
+            <option value="electronics">{tr(uiLanguage, 'Electronics', 'Electronique')}</option>
+            <option value="construction">{tr(uiLanguage, 'Construction Materials', 'Materiaux de construction')}</option>
+            <option value="other">{tr(uiLanguage, 'Other', 'Autre')}</option>
+          </select>
           <input
             type="number"
             placeholder={tr(uiLanguage, 'Filter by dimensions (m^3 max)', 'Filtrer par dimensions (m^3 max)', '   ')}
@@ -3363,6 +3353,7 @@ function ShipmentsSection({
               setShipmentOriginFilter('')
               setShipmentDestinationFilter('')
               setShipmentWilayaFilters([])
+              setShipmentCategoryFilter('')
               setShipmentCorridorOriginFilter('')
               setShipmentCorridorDestinationFilter('')
               setShipmentBetweenWilaya1Filter('')
@@ -3456,7 +3447,7 @@ function RoutesSection({
   routeBetweenWilaya2Filter,
   routeCapacityFilter,
   routeVolumeFilter,
-  routeVehicleTypeFilter,
+  routeVehicleTypeFilters,
   setRouteOriginFilter,
   setRouteDestinationFilter,
   setRouteWilayaFilters,
@@ -3466,7 +3457,7 @@ function RoutesSection({
   setRouteBetweenWilaya2Filter,
   setRouteCapacityFilter,
   setRouteVolumeFilter,
-  setRouteVehicleTypeFilter,
+  setRouteVehicleTypeFilters,
   setPostDateFilterStart,
   setPostDateFilterEnd,
   deleteRoute,
@@ -3583,18 +3574,15 @@ function RoutesSection({
             onChange={(e) => setRouteVolumeFilter(e.target.value)}
             className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
           />
-          <select
-            value={routeVehicleTypeFilter}
-            onChange={(e) => setRouteVehicleTypeFilter(e.target.value)}
-            className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-          >
-            <option value="">{tr(uiLanguage, 'All vehicle types', 'Tous les types de vehicules', ' ')}</option>
-            {VEHICLE_TYPE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {tr(uiLanguage, option.en, option.fr)}
-              </option>
-            ))}
-          </select>
+          <div className="md:col-span-4">
+            <WilayaSelectorMulti
+              label={tr(uiLanguage, 'Vehicle types', 'Types de vehicules')}
+              values={routeVehicleTypeFilters}
+              onChange={(nextValues) => setRouteVehicleTypeFilters(nextValues.slice(0, 5))}
+              placeholder={tr(uiLanguage, 'Search vehicle type', 'Rechercher type de vehicule')}
+              options={VEHICLE_TYPE_OPTIONS.map((option) => ({ id: option.value, name: tr(uiLanguage, option.en, option.fr) }))}
+            />
+          </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4 items-center">
           <div className="flex items-center gap-2">
@@ -3686,7 +3674,7 @@ function RoutesSection({
               setRouteBetweenWilaya2Filter('')
               setRouteCapacityFilter('')
               setRouteVolumeFilter('')
-              setRouteVehicleTypeFilter('')
+              setRouteVehicleTypeFilters([])
               setRouteTypeFilter('all')
               setPostDateFilterStart('')
               setPostDateFilterEnd('')
