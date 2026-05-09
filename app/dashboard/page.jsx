@@ -377,13 +377,27 @@ function routeHasVehicleType(route, vehicleTypeFilter) {
   if (normalizedFilters.length === 0) return false
 
   const vehicleAllocations = Array.isArray(route?.vehicleAllocation) ? route.vehicleAllocation : []
-  return vehicleAllocations.some((entry) => {
+  // Check allocations first
+  const allocMatches = vehicleAllocations.some((entry) => {
     const normalizedType = normalizeVehicleType(entry?.type || entry?.name || entry?.label)
     const normalizedTypeText = normalizeRouteText(normalizedType)
     const normalizedLabelText = normalizeRouteText(getVehicleTypeLabel(normalizedType))
     return normalizedFilters.some((filter) => normalizedTypeText.includes(filter) || normalizedLabelText.includes(filter))
   })
+  if (allocMatches) return true
+
+  // Also check preferredVehicleType on delivery posts or routes
+  const preferred = route?.preferredVehicleType || route?.preferredVehicleTypeLabel || ''
+  if (preferred) {
+    const normalizedType = normalizeVehicleType(preferred)
+    const normalizedTypeText = normalizeRouteText(normalizedType)
+    const normalizedLabelText = normalizeRouteText(getVehicleTypeLabel(normalizedType))
+    if (normalizedFilters.some((filter) => normalizedTypeText.includes(filter) || normalizedLabelText.includes(filter))) return true
+  }
+
+  return false
 }
+
 
 function getDialablePhone(rawPhone) {
   if (!rawPhone) return ''
@@ -424,6 +438,10 @@ function mapDeliveryPostFromDb(row) {
   const resolvedOwnerEmail = row.creator_email || row.ownerEmail || ''
   const resolvedOwnerName = row.creator_name || row.ownerName || row.ownerEmail || 'Unknown user'
   const resolvedVolume = row.volume ?? row.capacity ?? ''
+  const rawPreferredVehicle = row.preferredVehicleType || row.preferred_vehicle_type || ''
+  const hasPreferredVehicle = String(rawPreferredVehicle || '').trim() !== ''
+  const normalizedPreferredVehicle = hasPreferredVehicle ? normalizeVehicleType(rawPreferredVehicle) : ''
+  const preferredVehicleLabel = hasPreferredVehicle ? getVehicleTypeLabel(normalizedPreferredVehicle) : ''
 
   return {
     id: `SHP-DB-${row.id}`,
@@ -447,6 +465,8 @@ function mapDeliveryPostFromDb(row) {
     ownerDbId: resolvedOwnerId,
     ownerEmail: resolvedOwnerEmail,
     ownerName: resolvedOwnerName,
+    preferredVehicleType: hasPreferredVehicle ? normalizedPreferredVehicle : null,
+    preferredVehicleTypeLabel: preferredVehicleLabel,
   }
 }
 
@@ -608,6 +628,7 @@ export default function DashboardPage() {
   const [routeCapacityFilter, setRouteCapacityFilter] = useState('')
   const [routeVolumeFilter, setRouteVolumeFilter] = useState('')
   const [routeVehicleTypeFilters, setRouteVehicleTypeFilters] = useState([])
+  const [shipmentVehicleTypeFilters, setShipmentVehicleTypeFilters] = useState('')
   const [postDateFilterStart, setPostDateFilterStart] = useState('')
   const [postDateFilterEnd, setPostDateFilterEnd] = useState('')
 
@@ -2097,8 +2118,9 @@ export default function DashboardPage() {
         getCapacity: (post) => post.capacity,
         getVolume: (post) => post.volume ?? post.capacity,
         getAvailableCity: null,
+        vehicleTypeFilterValue: shipmentVehicleTypeFilters,
       }) && (!shipmentCategoryFilter || normalizeRouteText(item.category || item.type || item.itemCategory) === normalizeRouteText(shipmentCategoryFilter))),
-    [shipmentItems, shipmentOriginFilter, shipmentDestinationFilter, shipmentWilayaFilters, shipmentCorridorOriginFilter, shipmentCorridorDestinationFilter, shipmentBetweenWilaya1Filter, shipmentBetweenWilaya2Filter, shipmentCategoryFilter, shipmentCapacityFilter, shipmentVolumeFilter, postDateFilterStart, postDateFilterEnd]
+    [shipmentItems, shipmentOriginFilter, shipmentDestinationFilter, shipmentWilayaFilters, shipmentCorridorOriginFilter, shipmentCorridorDestinationFilter, shipmentBetweenWilaya1Filter, shipmentBetweenWilaya2Filter, shipmentCategoryFilter, shipmentCapacityFilter, shipmentVolumeFilter, shipmentVehicleTypeFilters, postDateFilterStart, postDateFilterEnd]
   )
 
   const filteredRoutes = useMemo(
@@ -2367,6 +2389,8 @@ export default function DashboardPage() {
                     shipmentBetweenWilaya2Filter={shipmentBetweenWilaya2Filter}
                     shipmentCapacityFilter={shipmentCapacityFilter}
                     shipmentVolumeFilter={shipmentVolumeFilter}
+                    shipmentVehicleTypeFilters={shipmentVehicleTypeFilters}
+                    setShipmentVehicleTypeFilters={setShipmentVehicleTypeFilters}
                     setShipmentOriginFilter={setShipmentOriginFilter}
                     setShipmentDestinationFilter={setShipmentDestinationFilter}
                     setShipmentWilayaFilters={setShipmentWilayaFilters}
@@ -3135,6 +3159,8 @@ function ShipmentsSection({
   shipmentBetweenWilaya2Filter,
   shipmentCapacityFilter,
   shipmentVolumeFilter,
+  shipmentVehicleTypeFilters,
+  setShipmentVehicleTypeFilters,
   setShipmentOriginFilter,
   setShipmentDestinationFilter,
   setShipmentWilayaFilters,
@@ -3350,6 +3376,18 @@ function ShipmentsSection({
                     className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
+                <div className="mt-3">
+                  <select
+                    value={shipmentVehicleTypeFilters}
+                    onChange={(e) => setShipmentVehicleTypeFilters(e.target.value)}
+                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  >
+                    <option value="">{tr(uiLanguage, 'Any vehicle', 'Tous les vehicules')}</option>
+                    {VEHICLE_TYPE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{tr(uiLanguage, option.en, option.fr)}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
               
               <div>
@@ -3386,6 +3424,7 @@ function ShipmentsSection({
                   setShipmentBetweenWilaya2Filter('')
                   setShipmentCapacityFilter('')
                   setShipmentVolumeFilter('')
+                  setShipmentVehicleTypeFilters('')
                   setPostDateFilterStart('')
                   setPostDateFilterEnd('')
                 }}
@@ -6363,7 +6402,7 @@ function computeWeightedRouteRelevance({
 }
 
 // Shipment Card Component
-function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, capacity, volume, dimensions, category, description, date, status, type, photo, ownerName = '', ownershipTag = '', routeItems, onStatusChange, onDelete, onToggleDetails, showDetails, isReadOnly = false, showInvite = false, onInvite, inviteSent = false, inviteDisabled = false }) {
+function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, capacity, volume, dimensions, category, description, date, status, type, photo, ownerName = '', ownershipTag = '', routeItems, onStatusChange, onDelete, onToggleDetails, showDetails, isReadOnly = false, showInvite = false, onInvite, inviteSent = false, inviteDisabled = false, preferredVehicleType, preferredVehicleTypeLabel }) {
   const t = (en, fr, ar = en) => tr(uiLanguage, en, fr, ar)
   const [relevantRouteFilter, setRelevantRouteFilter] = useState('all')
   const statusActionLabel = getShipmentStatusActionLabel(status)
@@ -6503,7 +6542,12 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
       <div className="flex items-start justify-between gap-4 text-sm">
         <div className="flex items-center gap-2 text-muted-foreground flex-1">
           <MapPin className="w-4 h-4 mt-0.5" />
-          <span>{origin} → {destination}</span>
+          <div>
+            <span>{origin} → {destination}</span>
+            {preferredVehicleType && (
+              <div className="text-xs text-muted-foreground mt-1">{t('Preferred', 'Prefere')}: <span className="text-foreground">{preferredVehicleTypeLabel}</span></div>
+            )}
+          </div>
         </div>
         <div className="text-right">
           <span className="text-foreground font-medium block">{formatWeightKg(weight)}</span>
@@ -6547,6 +6591,7 @@ function ShipmentCard({ uiLanguage, id, itemName, origin, destination, weight, c
             <p className="text-xs text-muted-foreground">{t('Weight', 'Poids')}: <span className="text-foreground">{formatWeightKg(weight)}</span></p>
             <p className="text-xs text-muted-foreground">{t('Dimensions', 'Dimensions')}: <span className="text-foreground">{(volume || capacity) ? formatVolumeM3(volume || capacity) : t('N/A', 'N/A')}</span></p>
             <p className="text-xs text-muted-foreground">{t('Category', 'Categorie')}: <span className="text-foreground">{typeLabel[shipmentCategory] || t('General', 'General')}</span></p>
+            <p className="text-xs text-muted-foreground">{t('Preferred vehicle', 'Vehicule prefere')}: <span className="text-foreground">{preferredVehicleTypeLabel || t('Any', 'N/A')}</span></p>
             <p className="text-xs text-muted-foreground">{t('Dimensions', 'Dimensions')}: <span className="text-foreground">{dimensions || t('N/A', 'N/A')}</span></p>
             <p className="text-xs text-muted-foreground">{t('Route', 'Trajet')}: <span className="text-foreground">{origin} {t('to', 'vers')} {destination}</span></p>
             <p className="text-xs text-muted-foreground">{t('Notes', 'Notes')}: <span className="text-foreground">{description || t('N/A', 'N/A')}</span></p>
