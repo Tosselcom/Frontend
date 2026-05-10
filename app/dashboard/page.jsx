@@ -27,6 +27,7 @@ import {
 import DashboardSidebar from '@/components/dashboard-sidebar'
 import WilayaSearch from '@/components/ui/wilaya-search'
 import WilayaSelectorMulti from '@/components/ui/wilaya-selector-multi'
+import WilayaSelector from '@/components/ui/wilaya-selector'
 import { discoverApiBaseUrl, getApiBaseUrl, getApiUrl } from '@/lib/api'
 
 const DEFAULT_USER = { name: 'John User', email: 'john@tosselcom.com', role: 'shared', photo: '' }
@@ -3234,7 +3235,7 @@ function ShipmentsSection({
           <div>
             <h2 className="text-xl font-bold text-foreground">{tr(uiLanguage, 'All Delivery Requests', 'Toutes les demandes de livraison', '  ')}</h2>
             {shipmentViewScope === 'mine' && myShipments.length > 0 && (
-              <p className="text-sm text-muted-foreground mt-1">
+              <p className="text-sm font-bold text-muted-foreground mt-1">
                 {tr(uiLanguage, '*Click on a post to see matches/relevant availability posts', '*Cliquez sur une publication pour voir les publications de disponibilites correspondantes', '*Cliquez sur une publication pour voir les publications de disponibilites correspondantes')}
               </p>
             )}
@@ -3586,7 +3587,7 @@ function RoutesSection({
           <div>
             <h2 className="text-xl font-bold text-foreground">{tr(uiLanguage, 'All Trucker Posts', 'Toutes les publications des transporteurs', '   (  +  )')}</h2>
             {routeViewScope === 'mine' && myRoutes.length > 0 && (
-              <p className="text-sm text-muted-foreground mt-1">
+              <p className="text-sm font-bold text-muted-foreground mt-1">
                 {tr(uiLanguage, '*Click on a post to see matches/relevant delivery posts', '*Cliquez sur une publication pour voir les publications de livraisons correspondantes', '*Cliquez sur une publication pour voir les publications de livraisons correspondantes')}
               </p>
             )}
@@ -7160,12 +7161,26 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
                 <p className="text-sm font-semibold text-foreground">{t('Edit shipment post', 'Modifier la publication livraison')}</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <input value={shipmentDraft.itemName} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, itemName: e.target.value }))} placeholder={t('Item name', 'Nom de l article')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
-                  <input value={shipmentDraft.category} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, category: e.target.value }))} placeholder={t('Category', 'Categorie')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
-                  <input value={shipmentDraft.origin} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, origin: e.target.value }))} placeholder={t('Departure city', 'Ville de depart')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
-                  <input value={shipmentDraft.destination} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, destination: e.target.value }))} placeholder={t('Destination city', 'Ville de destination')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
-                  <input value={shipmentDraft.weight} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, weight: e.target.value }))} placeholder={t('Weight (kg)', 'Poids (kg)')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
-                  <input value={shipmentDraft.capacity} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, capacity: e.target.value }))} placeholder={t('Dimensions (m^3)', 'Dimensions (m^3)')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
-                  <input value={shipmentDraft.date} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, date: e.target.value }))} placeholder={t('Delivery date', 'Date de livraison')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                  <select
+                    value={shipmentDraft.category}
+                    onChange={(e) => setShipmentDraft((prev) => ({ ...prev, category: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  >
+                    <option value="general">{t('General Goods', 'Marchandises generales')}</option>
+                    <option value="furniture">{t('Furniture', 'Meubles')}</option>
+                    <option value="appliances">{t('Appliances', 'Appareils menagers')}</option>
+                    <option value="fragile">{t('Fragile', 'Fragile')}</option>
+                    <option value="perishable">{t('Perishable', 'Perissable')}</option>
+                    <option value="hazardous">{t('Hazardous', 'Dangereux')}</option>
+                    <option value="electronics">{t('Electronics', 'Electronique')}</option>
+                    <option value="construction">{t('Construction Materials', 'Materiaux de construction')}</option>
+                    <option value="other">{t('Other', 'Autre')}</option>
+                  </select>
+                  <WilayaSelector value={shipmentDraft.origin} onChange={(val) => setShipmentDraft((prev) => ({ ...prev, origin: val }))} placeholder={t('Departure city', 'Ville de depart')} className="w-full" />
+                  <WilayaSelector value={shipmentDraft.destination} onChange={(val) => setShipmentDraft((prev) => ({ ...prev, destination: val }))} placeholder={t('Destination city', 'Ville de destination')} className="w-full" />
+                  <input type="number" value={shipmentDraft.weight} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, weight: e.target.value }))} placeholder={t('Weight (kg)', 'Poids (kg)')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                  <input type="number" value={shipmentDraft.capacity} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, capacity: e.target.value }))} placeholder={t('Dimensions (m^3)', 'Dimensions (m^3)')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                  <input type="date" value={shipmentDraft.date} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, date: e.target.value }))} placeholder={t('Delivery date', 'Date de livraison')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
                 </div>
                 <textarea value={shipmentDraft.description} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, description: e.target.value }))} placeholder={t('Description', 'Description')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm min-h-[80px]" />
                 <button
@@ -7247,11 +7262,11 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
                     <option value="full_route">{t('Full route', 'Trajet complet')}</option>
                     <option value="availability_only">{t('Availability only', 'Disponibilite seulement')}</option>
                   </select>
-                  <input value={routeDraft.availableCity} onChange={(e) => setRouteDraft((prev) => ({ ...prev, availableCity: e.target.value }))} placeholder={t('Available city', 'Ville disponible')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
-                  <input value={routeDraft.from} onChange={(e) => setRouteDraft((prev) => ({ ...prev, from: e.target.value }))} placeholder={t('Departure city', 'Ville de depart')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
-                  <input value={routeDraft.to} onChange={(e) => setRouteDraft((prev) => ({ ...prev, to: e.target.value }))} placeholder={t('Destination city', 'Ville de destination')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
-                  <input value={routeDraft.capacity} onChange={(e) => setRouteDraft((prev) => ({ ...prev, capacity: e.target.value }))} placeholder={t('Capacity (kg)', 'Capacite (kg)')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
-                  <input value={routeDraft.volume} onChange={(e) => setRouteDraft((prev) => ({ ...prev, volume: e.target.value }))} placeholder={t('Volume (m^3)', 'Volume (m^3)')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                  <WilayaSelector value={routeDraft.availableCity} onChange={(val) => setRouteDraft((prev) => ({ ...prev, availableCity: val }))} placeholder={t('Available city', 'Ville disponible')} className="w-full" />
+                  <WilayaSelector value={routeDraft.from} onChange={(val) => setRouteDraft((prev) => ({ ...prev, from: val }))} placeholder={t('Departure city', 'Ville de depart')} className="w-full" />
+                  <WilayaSelector value={routeDraft.to} onChange={(val) => setRouteDraft((prev) => ({ ...prev, to: val }))} placeholder={t('Destination city', 'Ville de destination')} className="w-full" />
+                  <input type="number" value={routeDraft.capacity} onChange={(e) => setRouteDraft((prev) => ({ ...prev, capacity: e.target.value }))} placeholder={t('Capacity (kg)', 'Capacite (kg)')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                  <input type="number" value={routeDraft.volume} onChange={(e) => setRouteDraft((prev) => ({ ...prev, volume: e.target.value }))} placeholder={t('Volume (m^3)', 'Volume (m^3)')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
