@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, useRef } from "react"
 import axios from "axios"
 import { X } from "lucide-react"
 import { getApiUrl } from "@/lib/api"
@@ -16,6 +16,23 @@ export default function WilayaSelector({
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState("")
   const [wilayas, setWilayas] = useState([])
+  const containerRef = useRef(null)
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (containerRef.current && !containerRef.current.contains(event.target)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
+
+  useEffect(() => {
+    if (!open) {
+      setSearch(value || "")
+    }
+  }, [value, open])
 
   useEffect(() => {
     const fetchWilayas = async () => {
@@ -41,39 +58,28 @@ export default function WilayaSelector({
   }, [search, wilayas])
 
   return (
-    <div className="relative">
+    <div className="relative" ref={containerRef}>
       {label ? <label className="block text-sm font-medium text-foreground mb-2">{label}</label> : null}
       <div className="flex gap-2 items-start">
         <div className="flex-1 relative">
-          <button
-            type="button"
-            onClick={() => setOpen((prev) => !prev)}
-            className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-left text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-          >
-            {value || placeholder}
-          </button>
           <input
-            className="sr-only"
-            value={value || ""}
-            onChange={() => {}}
-            required={required}
-            aria-hidden="true"
-            tabIndex={-1}
+            type="text"
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value)
+              if (event.target.value.trim() === "") {
+                onChange?.("")
+              }
+            }}
+            onFocus={() => setOpen(true)}
+            placeholder={placeholder}
+            required={required && !value}
+            className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-left text-foreground focus:outline-none focus:ring-2 focus:ring-primary placeholder:text-muted-foreground"
           />
 
           {open ? (
             <div className="absolute z-50 mt-2 w-full left-0 rounded-lg border border-border bg-card shadow-lg">
-              <div className="p-2 border-b border-border">
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search wilaya..."
-                  className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-              </div>
-
-              <div className="max-h-56 overflow-y-auto">
+              <div className="max-h-56 overflow-y-auto py-1">
                 {filtered.length === 0 ? (
                   <p className="px-3 py-2 text-sm text-muted-foreground">No wilaya found</p>
                 ) : (
@@ -83,8 +89,8 @@ export default function WilayaSelector({
                       type="button"
                       onClick={() => {
                         onChange?.(wilaya.name)
+                        setSearch(wilaya.name)
                         setOpen(false)
-                        setSearch("")
                       }}
                       className="w-full flex items-center justify-between px-3 py-2 text-left text-sm text-foreground hover:bg-muted"
                     >

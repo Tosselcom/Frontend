@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import axios from 'axios'
 import { X } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
@@ -17,6 +17,17 @@ export default function WilayaSelectorMulti({
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [wilayas, setWilayas] = useState([])
+  const containerRef = useRef(null)
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (containerRef.current && !containerRef.current.contains(event.target)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   useEffect(() => {
     if (Array.isArray(options)) {
@@ -63,7 +74,7 @@ export default function WilayaSelectorMulti({
   }
 
   return (
-    <div className="relative">
+    <div className="relative" ref={containerRef}>
       {label ? <label className="block text-sm font-medium text-foreground mb-2">{label}</label> : null}
       <div className="space-y-2">
         {/* Display selected wilayas as tags */}
