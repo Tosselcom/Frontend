@@ -7159,30 +7159,54 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
             {selectedShipmentIsMine && isEditingShipment && (
               <div className="rounded-lg border border-border bg-background p-4 space-y-3">
                 <p className="text-sm font-semibold text-foreground">{t('Edit shipment post', 'Modifier la publication livraison')}</p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <input value={shipmentDraft.itemName} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, itemName: e.target.value }))} placeholder={t('Item name', 'Nom de l article')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
-                  <select
-                    value={shipmentDraft.category}
-                    onChange={(e) => setShipmentDraft((prev) => ({ ...prev, category: e.target.value }))}
-                    className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                  >
-                    <option value="general">{t('General Goods', 'Marchandises generales')}</option>
-                    <option value="furniture">{t('Furniture', 'Meubles')}</option>
-                    <option value="appliances">{t('Appliances', 'Appareils menagers')}</option>
-                    <option value="fragile">{t('Fragile', 'Fragile')}</option>
-                    <option value="perishable">{t('Perishable', 'Perissable')}</option>
-                    <option value="hazardous">{t('Hazardous', 'Dangereux')}</option>
-                    <option value="electronics">{t('Electronics', 'Electronique')}</option>
-                    <option value="construction">{t('Construction Materials', 'Materiaux de construction')}</option>
-                    <option value="other">{t('Other', 'Autre')}</option>
-                  </select>
-                  <WilayaSelector value={shipmentDraft.origin} onChange={(val) => setShipmentDraft((prev) => ({ ...prev, origin: val }))} placeholder={t('Departure city', 'Ville de depart')} className="w-full" />
-                  <WilayaSelector value={shipmentDraft.destination} onChange={(val) => setShipmentDraft((prev) => ({ ...prev, destination: val }))} placeholder={t('Destination city', 'Ville de destination')} className="w-full" />
-                  <input type="number" value={shipmentDraft.weight} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, weight: e.target.value }))} placeholder={t('Weight (kg)', 'Poids (kg)')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
-                  <input type="number" value={shipmentDraft.capacity} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, capacity: e.target.value }))} placeholder={t('Dimensions (m^3)', 'Dimensions (m^3)')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
-                  <input type="date" value={shipmentDraft.date} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, date: e.target.value }))} placeholder={t('Delivery date', 'Date de livraison')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">{t('Item name', 'Nom de l article')}</label>
+                    <input value={shipmentDraft.itemName} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, itemName: e.target.value }))} placeholder={t('Item name', 'Nom de l article')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">{t('Category', 'Categorie')}</label>
+                    <select
+                      value={shipmentDraft.category}
+                      onChange={(e) => setShipmentDraft((prev) => ({ ...prev, category: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                    >
+                      <option value="general">{t('General Goods', 'Marchandises generales')}</option>
+                      <option value="furniture">{t('Furniture', 'Meubles')}</option>
+                      <option value="appliances">{t('Appliances', 'Appareils menagers')}</option>
+                      <option value="fragile">{t('Fragile', 'Fragile')}</option>
+                      <option value="perishable">{t('Perishable', 'Perissable')}</option>
+                      <option value="hazardous">{t('Hazardous', 'Dangereux')}</option>
+                      <option value="electronics">{t('Electronics', 'Electronique')}</option>
+                      <option value="construction">{t('Construction Materials', 'Materiaux de construction')}</option>
+                      <option value="other">{t('Other', 'Autre')}</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">{t('Departure city', 'Ville de depart')}</label>
+                    <WilayaSelector value={shipmentDraft.origin} onChange={(val) => setShipmentDraft((prev) => ({ ...prev, origin: val }))} placeholder={t('Departure city', 'Ville de depart')} className="w-full" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">{t('Destination city', 'Ville de destination')}</label>
+                    <WilayaSelector value={shipmentDraft.destination} onChange={(val) => setShipmentDraft((prev) => ({ ...prev, destination: val }))} placeholder={t('Destination city', 'Ville de destination')} className="w-full" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">{t('Weight (kg)', 'Poids (kg)')}</label>
+                    <input type="number" value={shipmentDraft.weight} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, weight: e.target.value }))} placeholder={t('Weight (kg)', 'Poids (kg)')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">{t('Dimensions (m³)', 'Dimensions (m³)')}</label>
+                    <input type="number" value={shipmentDraft.capacity} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, capacity: e.target.value }))} placeholder={t('Dimensions (m³)', 'Dimensions (m³)')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                  </div>
+                  <div className="space-y-1.5 md:col-span-2">
+                    <label className="text-xs font-medium text-muted-foreground">{t('Delivery date', 'Date de livraison')}</label>
+                    <input type="date" value={shipmentDraft.date} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, date: e.target.value }))} placeholder={t('Delivery date', 'Date de livraison')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm md:w-1/2" />
+                  </div>
                 </div>
-                <textarea value={shipmentDraft.description} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, description: e.target.value }))} placeholder={t('Description', 'Description')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm min-h-[80px]" />
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">{t('Description', 'Description')}</label>
+                  <textarea value={shipmentDraft.description} onChange={(e) => setShipmentDraft((prev) => ({ ...prev, description: e.target.value }))} placeholder={t('Description', 'Description')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm min-h-[80px]" />
+                </div>
                 <button
                   onClick={handleSaveShipmentEdit}
                   disabled={isSavingEdit}
@@ -7203,18 +7227,35 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
                 <p className="text-xs text-muted-foreground">{t('Post Type', 'Type de publication')}</p>
                 <p className="text-sm font-semibold text-foreground mt-1">{selectedRoute.postType === 'availability_only' ? t('Availability only', 'Disponibilite seulement') : t('Full route', 'Trajet complet')}</p>
               </div>
-              <div className="rounded-lg border border-border bg-muted p-3">
-                <p className="text-xs text-muted-foreground">Departure city</p>
-                <p className="text-sm font-semibold text-foreground mt-1">{selectedRoute.from}</p>
-              </div>
-              <div className="rounded-lg border border-border bg-muted p-3">
-                <p className="text-xs text-muted-foreground">Destination city</p>
-                <p className="text-sm font-semibold text-foreground mt-1">{selectedRoute.to}</p>
-              </div>
-              <div className="rounded-lg border border-border bg-muted p-3">
-                <p className="text-xs text-muted-foreground">{t('Departure date', 'Date de depart')}</p>
-                <p className="text-sm font-semibold text-foreground mt-1">{selectedRoute.departure || t('N/A', 'N/A')}</p>
-              </div>
+              {selectedRoute.postType === 'availability_only' ? (
+                <>
+                  <div className="rounded-lg border border-border bg-muted p-3">
+                    <p className="text-xs text-muted-foreground">{t('Available city', 'Ville disponible')}</p>
+                    <p className="text-sm font-semibold text-foreground mt-1">{selectedRoute.availableCity || selectedRoute.from}</p>
+                  </div>
+                  <div className="rounded-lg border border-border bg-muted p-3">
+                    <p className="text-xs text-muted-foreground">{t('Availability dates', 'Dates de disponibilité')}</p>
+                    <p className="text-sm font-semibold text-foreground mt-1">
+                      {selectedRoute.availabilityStartDate || t('N/A', 'N/A')} {t('to', 'au')} {selectedRoute.availabilityEndDate || t('N/A', 'N/A')}
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="rounded-lg border border-border bg-muted p-3">
+                    <p className="text-xs text-muted-foreground">{t('Departure city', 'Ville de départ')}</p>
+                    <p className="text-sm font-semibold text-foreground mt-1">{selectedRoute.from}</p>
+                  </div>
+                  <div className="rounded-lg border border-border bg-muted p-3">
+                    <p className="text-xs text-muted-foreground">{t('Destination city', 'Ville de destination')}</p>
+                    <p className="text-sm font-semibold text-foreground mt-1">{selectedRoute.to}</p>
+                  </div>
+                  <div className="rounded-lg border border-border bg-muted p-3">
+                    <p className="text-xs text-muted-foreground">{t('Departure date', 'Date de départ')}</p>
+                    <p className="text-sm font-semibold text-foreground mt-1">{selectedRoute.departure || t('N/A', 'N/A')}</p>
+                  </div>
+                </>
+              )}
               <div className="rounded-lg border border-border bg-muted p-3">
                 <p className="text-xs text-muted-foreground">{t('Capacity', 'Capacite')}</p>
                 <p className="text-sm font-semibold text-foreground mt-1">{formatWeightKg(selectedRoute.capacity)}</p>
@@ -7257,17 +7298,42 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
             {selectedRouteIsMine && isEditingRoute && (
               <div className="rounded-lg border border-border bg-background p-4 space-y-3">
                 <p className="text-sm font-semibold text-foreground">{t('Edit availability post', 'Modifier la publication disponibilite')}</p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <select value={routeDraft.postType} onChange={(e) => setRouteDraft((prev) => ({ ...prev, postType: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm">
-                    <option value="full_route">{t('Full route', 'Trajet complet')}</option>
-                    <option value="availability_only">{t('Availability only', 'Disponibilite seulement')}</option>
-                  </select>
-                  <WilayaSelector value={routeDraft.availableCity} onChange={(val) => setRouteDraft((prev) => ({ ...prev, availableCity: val }))} placeholder={t('Available city', 'Ville disponible')} className="w-full" />
-                  <WilayaSelector value={routeDraft.from} onChange={(val) => setRouteDraft((prev) => ({ ...prev, from: val }))} placeholder={t('Departure city', 'Ville de depart')} className="w-full" />
-                  <WilayaSelector value={routeDraft.to} onChange={(val) => setRouteDraft((prev) => ({ ...prev, to: val }))} placeholder={t('Destination city', 'Ville de destination')} className="w-full" />
-                  <input type="number" value={routeDraft.capacity} onChange={(e) => setRouteDraft((prev) => ({ ...prev, capacity: e.target.value }))} placeholder={t('Capacity (kg)', 'Capacite (kg)')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
-                  <input type="number" value={routeDraft.volume} onChange={(e) => setRouteDraft((prev) => ({ ...prev, volume: e.target.value }))} placeholder={t('Volume (m^3)', 'Volume (m^3)')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
-                  <div className="flex items-center gap-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">{t('Post Type', 'Type de publication')}</label>
+                    <select value={routeDraft.postType} onChange={(e) => setRouteDraft((prev) => ({ ...prev, postType: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm">
+                      <option value="full_route">{t('Full route', 'Trajet complet')}</option>
+                      <option value="availability_only">{t('Availability only', 'Disponibilite seulement')}</option>
+                    </select>
+                  </div>
+                  {routeDraft.postType === 'availability_only' ? (
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground">{t('Available city', 'Ville disponible')}</label>
+                      <WilayaSelector value={routeDraft.availableCity} onChange={(val) => setRouteDraft((prev) => ({ ...prev, availableCity: val }))} placeholder={t('Available city', 'Ville disponible')} className="w-full" />
+                    </div>
+                  ) : (
+                    <>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-medium text-muted-foreground">{t('Departure city', 'Ville de depart')}</label>
+                        <WilayaSelector value={routeDraft.from} onChange={(val) => setRouteDraft((prev) => ({ ...prev, from: val }))} placeholder={t('Departure city', 'Ville de depart')} className="w-full" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-medium text-muted-foreground">{t('Destination city', 'Ville de destination')}</label>
+                        <WilayaSelector value={routeDraft.to} onChange={(val) => setRouteDraft((prev) => ({ ...prev, to: val }))} placeholder={t('Destination city', 'Ville de destination')} className="w-full" />
+                      </div>
+                    </>
+                  )}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">{t('Capacity (kg)', 'Capacite (kg)')}</label>
+                    <input type="number" value={routeDraft.capacity} onChange={(e) => setRouteDraft((prev) => ({ ...prev, capacity: e.target.value }))} placeholder={t('Capacity (kg)', 'Capacite (kg)')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">{t('Volume (m³)', 'Volume (m³)')}</label>
+                    <input type="number" value={routeDraft.volume} onChange={(e) => setRouteDraft((prev) => ({ ...prev, volume: e.target.value }))} placeholder={t('Volume (m³)', 'Volume (m³)')} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">{t('Vehicle count', 'Nombre de vehicules')}</label>
+                    <div className="flex items-center gap-2">
                     <button
                       type="button"
                       aria-label="Decrease vehicle count"
@@ -7316,34 +7382,44 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
                       className="px-3 py-2 bg-card border border-border rounded-lg text-foreground hover:bg-card/80"
                     >+</button>
                   </div>
+                  </div>
                   {routeDraft.postType === 'availability_only' ? (
                     <>
-                      <input
-                        type="date"
-                        min={todayString}
-                        value={routeDraft.availabilityStartDate}
-                        onChange={(e) => setRouteDraft((prev) => ({ ...prev, availabilityStartDate: e.target.value }))}
-                        placeholder={t('Available from', 'Disponible du')}
-                        className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm"
-                      />
-                      <input
-                        type="date"
-                        min={routeDraft.availabilityStartDate || todayString}
-                        value={routeDraft.availabilityEndDate}
-                        onChange={(e) => setRouteDraft((prev) => ({ ...prev, availabilityEndDate: e.target.value }))}
-                        placeholder={t('Available until', 'Disponible jusqu au')}
-                        className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm"
-                      />
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-medium text-muted-foreground">{t('Available from', 'Disponible du')}</label>
+                        <input
+                          type="date"
+                          min={todayString}
+                          value={routeDraft.availabilityStartDate}
+                          onChange={(e) => setRouteDraft((prev) => ({ ...prev, availabilityStartDate: e.target.value }))}
+                          placeholder={t('Available from', 'Disponible du')}
+                          className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-medium text-muted-foreground">{t('Available until', 'Disponible jusqu au')}</label>
+                        <input
+                          type="date"
+                          min={routeDraft.availabilityStartDate || todayString}
+                          value={routeDraft.availabilityEndDate}
+                          onChange={(e) => setRouteDraft((prev) => ({ ...prev, availabilityEndDate: e.target.value }))}
+                          placeholder={t('Available until', 'Disponible jusqu au')}
+                          className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm"
+                        />
+                      </div>
                     </>
                   ) : (
-                    <input 
-                      type="date"
-                      min={todayString}
-                      value={routeDraft.departure} 
-                      onChange={(e) => setRouteDraft((prev) => ({ ...prev, departure: e.target.value }))} 
-                      placeholder={t('Departure date', 'Date de depart')} 
-                      className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" 
-                    />
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground">{t('Departure date', 'Date de depart')}</label>
+                      <input 
+                        type="date"
+                        min={todayString}
+                        value={routeDraft.departure} 
+                        onChange={(e) => setRouteDraft((prev) => ({ ...prev, departure: e.target.value }))} 
+                        placeholder={t('Departure date', 'Date de depart')} 
+                        className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm" 
+                      />
+                    </div>
                   )}
                   <div className="md:col-span-2 space-y-3 rounded-lg border border-border bg-muted/30 p-3">
                     <p className="text-xs text-muted-foreground">
@@ -7353,7 +7429,7 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
                       {routeDraft.vehicleAllocations.map((allocationValue, index) => (
                         <div key={`route-edit-vehicle-${index}`}>
                           <label className="block text-xs font-medium text-muted-foreground mb-2">{t(`Vehicle ${index + 1}`, `Vehicule ${index + 1}`)}</label>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                             <select
                               value={allocationValue.type}
                               onChange={(e) => {
@@ -7387,6 +7463,23 @@ function PostDetailPage({ uiLanguage, detailView, shipmentItems, routeItems, cur
                               placeholder={t('Capacity (kg)', 'Capacite (kg)')}
                               className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm"
                               step="1"
+                            />
+                            <input
+                              value={allocationValue.volume || ''}
+                              onChange={(e) => {
+                                const nextValue = e.target.value
+                                setRouteDraft((prev) => ({
+                                  ...prev,
+                                  vehicleAllocations: prev.vehicleAllocations.map((currentValue, currentIndex) => (
+                                    currentIndex === index ? { ...currentValue, volume: nextValue } : currentValue
+                                  )),
+                                }))
+                              }}
+                              type="number"
+                              min="0"
+                              placeholder={t('Volume (m³)', 'Volume (m³)')}
+                              className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm"
+                              step="0.1"
                             />
                           </div>
                         </div>
